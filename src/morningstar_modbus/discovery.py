@@ -27,7 +27,7 @@ async def _probe(client: ReadOnlyModbusClient) -> tuple[DeviceIdentification, fl
             identity = DeviceIdentification()
         latency_ms = (time.perf_counter() - started) * 1000.0
         return identity, latency_ms
-    except (OSError, TimeoutError, ConnectionError, asyncio.TimeoutError):
+    except (OSError, TimeoutError, ConnectionError):
         return None
     except Exception as exc:
         LOGGER.debug("probe failed: %s", exc)
