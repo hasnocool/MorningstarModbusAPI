@@ -1,5 +1,5 @@
 # src/morningstar_modbus/watcher.py
-"""Continuous discovery and polling runtime."""
+"""Continuous discovery and catalog-driven polling runtime."""
 
 from __future__ import annotations
 
@@ -7,10 +7,10 @@ import asyncio
 import logging
 import time
 
+from morningstar_modbus.catalog import CatalogProfile, get_profile
 from morningstar_modbus.config import AppConfig
 from morningstar_modbus.discovery import discover
 from morningstar_modbus.models import DiscoveredDevice, PollResult
-from morningstar_modbus.profiles import GenericProfile, TriStarMpptProfile
 from morningstar_modbus.storage import TelemetryStore
 from morningstar_modbus.transport import AsyncModbusRtuClient, AsyncModbusTcpClient, ReadOnlyModbusClient
 
@@ -24,12 +24,14 @@ class Watcher:
         self._devices: dict[str, DiscoveredDevice] = {}
         self._device_ids: dict[str, str] = {}
         self._clients: dict[str, ReadOnlyModbusClient] = {}
+        self._profiles: dict[str, CatalogProfile] = {}
         self._stopping = asyncio.Event()
 
     async def stop(self) -> None:
         self._stopping.set()
         clients = tuple(self._clients.values())
         self._clients.clear()
+        self._profiles.clear()
         if clients:
             await asyncio.gather(*(client.close() for client in clients), return_exceptions=True)
 
@@ -56,7 +58,9 @@ class Watcher:
         for device in found:
             key = device.endpoint.stable_key
             previous = self._devices.get(key)
-            if previous is not None and previous.endpoint != device.endpoint:
+            endpoint_moved = previous is not None and previous.endpoint != device.endpoint
+            profile_changed = previous is not None and previous.profile != device.profile
+            if endpoint_moved:
                 client = self._clients.pop(key, None)
                 if client is not None:
                     await client.close()
@@ -66,6 +70,8 @@ class Watcher:
                     previous.endpoint.locator,
                     device.endpoint.locator,
                 )
+            if endpoint_moved or profile_changed:
+                self._profiles.pop(key, None)
             self._devices[key] = device
             self._device_ids[key] = await self.store.upsert_device(device)
         if found:
@@ -102,14 +108,21 @@ class Watcher:
             self._clients[key] = client
         return client
 
+    def _profile(self, key: str, device: DiscoveredDevice) -> CatalogProfile:
+        profile = self._profiles.get(key)
+        if profile is None or profile.name != device.profile:
+            profile = get_profile(device.profile)
+            self._profiles[key] = profile
+        return profile
+
     async def _poll_one(self, key: str, device: DiscoveredDevice) -> None:
         device_id = self._device_ids.get(key)
         if device_id is None:
             return
         client = self._client(key, device)
+        profile = self._profile(key, device)
         started = time.perf_counter()
         try:
-            profile = TriStarMpptProfile() if device.profile == "tristar_mppt" else GenericProfile()
             values = await profile.poll(client)
             latency_ms = (time.perf_counter() - started) * 1000.0
             await self.store.save_poll(

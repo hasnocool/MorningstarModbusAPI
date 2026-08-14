@@ -14,11 +14,11 @@ The backend design is derived from the proven transport and scaling patterns in 
 - Modbus RTU over USB serial adapters, RS-232, or RS-485 adapters.
 - Modbus TCP over explicit hosts or bounded local CIDRs.
 - Standard Modbus device identification (`0x2B / 0x0E`) when supported.
-- Fallback endpoint verification via a read-only holding-register probe.
+- Conservative read-only family fingerprints when older hardware does not expose useful device identification.
 - Continuous rediscovery and reconnect by the watcher.
 - Stable serial identity using USB serial metadata when available, so a replugged adapter can move from one `/dev/ttyUSB*` path to another without becoming a new logical device.
 - SQLite/WAL telemetry history using non-blocking `aiosqlite` access.
-- Raw register retention plus a built-in decoded **TriStar MPPT** profile.
+- Raw register retention plus a structured **Morningstar-wide device catalog** with model-specific decoding.
 - FastAPI JSON API and automatic OpenAPI docs.
 - No Modbus write functions in the initial release.
 
@@ -94,18 +94,22 @@ By default the API binds only to `127.0.0.1:8080`. Change `[api]` in the TOML fi
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /health` | Liveness/version |
+| `GET /v1/catalog` | Known Morningstar product families and coverage |
+| `GET /v1/catalog/{profile_name}` | Full register/scaling/state/fault definition for one profile |
 | `GET /v1/devices` | All discovered devices |
 | `GET /v1/devices/{device_id}` | Device metadata and status |
-| `GET /v1/devices/{device_id}/latest` | Latest poll with register values |
-| `GET /v1/devices/{device_id}/samples?limit=100` | Poll history |
-| `GET /v1/devices/{device_id}/registers/{name}/history` | Time series for a named register |
+| `GET /v1/devices/latest?device_id=...` | Latest poll with register values |
+| `GET /v1/devices/samples?device_id=...&limit=100` | Poll history |
+| `GET /v1/devices/registers/{name}/history?device_id=...` | Time series for a named register |
 | `GET /docs` | Swagger/OpenAPI UI |
 
 Example:
 
 ```bash
+curl http://127.0.0.1:8080/v1/catalog
 curl http://127.0.0.1:8080/v1/devices
-curl 'http://127.0.0.1:8080/v1/devices/tcp:192.168.1.50:502:unit:1/latest'
+curl --get http://127.0.0.1:8080/v1/devices/latest \
+  --data-urlencode 'device_id=tcp:192.168.1.50:502:unit:1'
 ```
 
 ## TCP discovery
@@ -139,25 +143,13 @@ SQLite stores:
 
 The watcher never requires an API consumer to be online. Consumers can restart independently and query the retained history later.
 
-## TriStar MPPT profile
+## Morningstar device catalog
 
-When Modbus device identification contains Morningstar + TriStar/TS-MPPT, the watcher reads the same primary RAM block used by the established TriStar backend and publishes useful names including:
+Discovery now selects a structured product profile instead of treating everything except TriStar MPPT as generic registers. The catalog covers current and legacy Modbus-capable families including GenStar MPPT, ReadyEdge, TriStar MPPT/PWM, ProStar MPPT/PWM, SunSaver MPPT/Duo, and SureSine Classic/Gen2. A dedicated Relay Driver profile is present with conservative raw coverage until its exact named table is fully verified.
 
-- `battery_voltage`
-- `battery_terminal_voltage`
-- `battery_sense_voltage`
-- `array_voltage`
-- `battery_charge_current`
-- `array_current`
-- `heatsink_temp`
-- `battery_temp`
-- `charge_state`
-- `target_voltage`
-- `input_power`
-- `output_power`
-- `daily_charge_wh`
+Each family module owns its register blocks, scaling rules, operating-state enums, fault/alarm bitfields, metadata fields, communications capabilities, network defaults, and official Morningstar source reference. Stable metadata such as serial number and hardware/firmware information is cached rather than re-read on every poll.
 
-All raw words are retained alongside those decoded fields.
+See [`docs/device-catalog.md`](docs/device-catalog.md) for the package layout, coverage table, source policy, and extension rules.
 
 ## Vendor documentation
 

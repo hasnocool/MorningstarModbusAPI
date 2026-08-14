@@ -4,6 +4,29 @@
   "support_library": "https://www.morningstarcorp.com/support/library/",
   "sources": [
     {
+      "id": "genstar-mppt-modbus-v03",
+      "title": "GenStar MPPT MODBUS Specification",
+      "document_id": "MS-003855",
+      "version": "V03",
+      "document_date": "2026-02-03",
+      "url": "https://www.morningstarcorp.com/wp-content/uploads/technical-doc-genstar-mppt-modbus-specification-en.pdf",
+      "filename": "genstar-mppt-modbus-v03.pdf",
+      "format": "pdf",
+      "priority": "primary",
+      "relevance": "Current GenStar MPPT USB/RS-232/EIA-485/TCP map, serial and firmware metadata, Float16 telemetry, SOC, charge/load state, faults, alarms, ReadyRail, and network defaults."
+    },
+    {
+      "id": "readyedge-modbus-v01",
+      "title": "ReadyEdge MODBUS Specification",
+      "version": "V01",
+      "document_date": "2025-09-02",
+      "url": "https://www.morningstarcorp.com/wp-content/uploads/technical-doc-readyedge-modbus-specification-en.pdf",
+      "filename": "readyedge-modbus-v01.pdf",
+      "format": "pdf",
+      "priority": "primary",
+      "relevance": "ReadyEdge USB/RS-232/EIA-485/TCP map, serial and firmware metadata, DC inputs, temperatures, SOC, faults/alarms, ReadyBlocks, and connected-product bridging."
+    },
+    {
       "id": "tristar-mppt-modbus-v11",
       "title": "TriStar MPPT MODBUS Specification",
       "document_id": "MS-002582",
@@ -14,6 +37,97 @@
       "format": "pdf",
       "priority": "primary",
       "relevance": "Authoritative Modbus RTU/TCP parameters, register addresses, scaling, functions, network registers, EEPROM fields, coils, alarms, faults, and device-identification behavior."
+    },
+    {
+      "id": "tristar-mppt-600v-modbus",
+      "title": "TriStar MPPT 600V MODBUS Specification",
+      "url": "https://www.morningstarcorp.com/wp-content/uploads/technical-doc-tristar-mppt-600v-modbus-specification-en.pdf",
+      "filename": "tristar-mppt-600v-modbus-specification.pdf",
+      "format": "pdf",
+      "priority": "primary",
+      "relevance": "TriStar MPPT 600V RTU/TCP map, firmware/FPGA metadata, network defaults, legacy scaling, and Float16 telemetry."
+    },
+    {
+      "id": "tristar-pwm-modbus-v07",
+      "title": "TriStar PWM MODBUS Specification",
+      "version": "V07",
+      "url": "https://www.morningstarcorp.com/wp-content/uploads/technical-doc-tristar-modbus-specification-en.pdf",
+      "filename": "tristar-pwm-modbus-specification-v07.pdf",
+      "format": "pdf",
+      "priority": "primary",
+      "relevance": "TriStar PWM charge/load/diversion registers, alarms, faults, serial number, hardware version, model flag, and EEPROM configuration."
+    },
+    {
+      "id": "prostar-mppt-modbus-v05",
+      "title": "ProStar MPPT MODBUS Document",
+      "document_id": "MS-001723",
+      "version": "v05",
+      "url": "https://www.morningstarcorp.com/wp-content/uploads/technical-doc-prostar-mppt-modbus-specification-en-1.pdf",
+      "filename": "prostar-mppt-modbus-v05.pdf",
+      "format": "pdf",
+      "priority": "primary",
+      "relevance": "ProStar MPPT Float16 telemetry, charge/load states, alarms, faults, counters, power, and communications identifiers."
+    },
+    {
+      "id": "prostar-pwm-modbus-v2",
+      "title": "ProStar PWM MODBUS Document",
+      "document_id": "MS-001838",
+      "version": "v2.0",
+      "url": "https://www.morningstarcorp.com/wp-content/uploads/technical-doc-prostar-modbus-specification-en.pdf",
+      "filename": "prostar-pwm-modbus-v2.pdf",
+      "format": "pdf",
+      "priority": "primary",
+      "relevance": "ProStar Gen3 PWM Float16 map, charge/load states, alarms, faults, counters, and configuration."
+    },
+    {
+      "id": "sunsaver-mppt-modbus-v11",
+      "title": "SunSaver MPPT MODBUS Specification",
+      "version": "v11",
+      "url": "https://www.morningstarcorp.com/wp-content/uploads/technical-doc-sunsaver-mppt-modbus-specification-en.pdf",
+      "filename": "sunsaver-mppt-modbus-v11.pdf",
+      "format": "pdf",
+      "priority": "primary",
+      "relevance": "SunSaver MPPT telemetry, fixed-point scaling, lighting, charge/load state, alarms, faults, EEPROM, and device identification."
+    },
+    {
+      "id": "sunsaver-duo-modbus-v04",
+      "title": "SunSaver Duo MODBUS Specification",
+      "version": "V04",
+      "document_date": "2019-03-19",
+      "url": "https://www.morningstarcorp.com/wp-content/uploads/technical-doc-sunsaver-duo-modbus-specification-en.pdf",
+      "filename": "sunsaver-duo-modbus-v04.pdf",
+      "format": "pdf",
+      "priority": "primary",
+      "relevance": "SunSaver Duo dual-battery telemetry, duty cycles, operating state, faults, flags, and serial communications."
+    },
+    {
+      "id": "suresine-classic-modbus-v03",
+      "title": "SureSine-300 MODBUS Specification",
+      "version": "V03",
+      "url": "https://www.morningstarcorp.com/wp-content/uploads/technical-doc-suresine-modbus-specification-en.pdf",
+      "filename": "suresine-classic-modbus-v03.pdf",
+      "format": "pdf",
+      "priority": "primary",
+      "relevance": "SureSine Classic telemetry, inverter/load state, faults, alarms, communications IDs, serial number, and EEPROM settings."
+    },
+    {
+      "id": "suresine-gen2-modbus",
+      "title": "SureSine Gen 2 MODBUS Specification",
+      "document_id": "MS-003763",
+      "url": "https://www.morningstarcorp.com/wp-content/uploads/technical-doc-suresine-2-modbus-specification-en.pdf",
+      "filename": "suresine-gen2-modbus.pdf",
+      "format": "pdf",
+      "priority": "primary",
+      "relevance": "SureSine Gen2 EIA-485/TCP parameters, ratings, telemetry, operating states, alarms, faults, energy, relay, and LED status."
+    },
+    {
+      "id": "relay-driver-modbus",
+      "title": "Relay Driver MODBUS Specification",
+      "url": "https://www.morningstarcorp.com/wp-content/uploads/technical-doc-relay-driver-modbus-specification-en.pdf",
+      "filename": "relay-driver-modbus.pdf",
+      "format": "pdf",
+      "priority": "primary",
+      "relevance": "Relay Driver RD-1 channel voltage, temperature, status, and MODBUS control/register reference."
     },
     {
       "id": "morningstar-product-connectivity-2024",
@@ -34,7 +148,7 @@
       "filename": "tristar-mppt-networking-companion.pdf",
       "format": "pdf",
       "priority": "secondary",
-      "relevance": "Legacy but useful details for DHCP, LAN connectivity, Ethernet-enabled TriStar MPPT models, local discovery, and remote access."
+      "relevance": "Legacy details for DHCP, LAN connectivity, Ethernet-enabled TriStar MPPT models, local discovery, and remote access."
     },
     {
       "id": "rsc1-operation-manual",
@@ -59,9 +173,9 @@
       "title": "TriStar MPPT Meter Map - Solar Charging",
       "document_id": "MS-ZMAN-TSM2-04-B",
       "url": "https://www.morningstarcorp.com/meter-map-tristar-mppt-en/",
-      "filename": "tristar-mppt-meter-map.pdf",
-      "format": "pdf",
+      "format": "html",
       "priority": "secondary",
+      "download": false,
       "relevance": "Human-facing names for operating values, diagnostics, alarms, faults, charge states, counters, settings, and logged data."
     },
     {
@@ -81,7 +195,7 @@
       "format": "html",
       "priority": "index",
       "download": false,
-      "relevance": "Canonical product landing page linking the current manuals, meter map, Modbus document, firmware, and support resources."
+      "relevance": "Canonical product landing page linking current manuals, meter map, Modbus document, firmware, and support resources."
     }
   ]
 }
