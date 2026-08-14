@@ -134,7 +134,7 @@ async def _run(args: argparse.Namespace) -> int:
             print(f"  {source.url}")
         return 0
 
-    cache_dir = Path(args.cache_dir).expanduser()
+    cache_dir = await asyncio.to_thread(lambda: Path(args.cache_dir).expanduser())
     await asyncio.to_thread(cache_dir.mkdir, parents=True, exist_ok=True)
     semaphore = asyncio.Semaphore(args.workers)
     tasks = [
