@@ -11,3 +11,4 @@ htmlcov/
 *.db-wal
 .env
 .DS_Store
+docs/vendor/morningstar/cache/

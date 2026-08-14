@@ -159,6 +159,18 @@ When Modbus device identification contains Morningstar + TriStar/TS-MPPT, the wa
 
 All raw words are retained alongside those decoded fields.
 
+## Vendor documentation
+
+Official Morningstar source documents are indexed under [`docs/vendor/morningstar/`](docs/vendor/morningstar/README.md). The repository keeps a verified source catalog and concise implementation notes without vendoring the full vendor PDFs.
+
+Fetch the current official documents into a local ignored cache when needed:
+
+```bash
+python tools/fetch_morningstar_docs.py
+```
+
+Use `python tools/fetch_morningstar_docs.py --list` to inspect the source catalog without downloading files.
+
 ## Development
 
 ```bash

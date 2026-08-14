@@ -1,0 +1,87 @@
+{
+  "vendor": "Morningstar Corporation",
+  "verified_at": "2026-08-14",
+  "support_library": "https://www.morningstarcorp.com/support/library/",
+  "sources": [
+    {
+      "id": "tristar-mppt-modbus-v11",
+      "title": "TriStar MPPT MODBUS Specification",
+      "document_id": "MS-002582",
+      "version": "V11",
+      "document_date": "2018-08-21",
+      "url": "https://www.morningstarcorp.com/wp-content/uploads/technical-doc-tristar-mppt-modbus-specification-en.pdf",
+      "filename": "tristar-mppt-modbus-specification-v11.pdf",
+      "format": "pdf",
+      "priority": "primary",
+      "relevance": "Authoritative Modbus RTU/TCP parameters, register addresses, scaling, functions, network registers, EEPROM fields, coils, alarms, faults, and device-identification behavior."
+    },
+    {
+      "id": "morningstar-product-connectivity-2024",
+      "title": "Morningstar Product Connectivity Manual - Networking & Communications",
+      "document_date": "2024-03-04",
+      "url": "https://www.morningstarcorp.com/wp-content/uploads/technical-doc-morningstar-product-connectivity-manual-networking-communications-en.pdf",
+      "filename": "morningstar-product-connectivity-manual-2024.pdf",
+      "format": "pdf",
+      "priority": "primary",
+      "relevance": "Cross-product communications reference covering RS-232, USB, MeterBus, Modbus networks, local/remote connections, HTTP, SNMP, data logging, network security, and troubleshooting."
+    },
+    {
+      "id": "tristar-mppt-networking-companion",
+      "title": "TriStar MPPT Networking Companion Document",
+      "version": "v01",
+      "document_date": "2009-10",
+      "url": "https://www.morningstarcorp.com/wp-content/uploads/technical-doc-tristar-mppt-networking-companion-document-en.pdf",
+      "filename": "tristar-mppt-networking-companion.pdf",
+      "format": "pdf",
+      "priority": "secondary",
+      "relevance": "Legacy but useful details for DHCP, LAN connectivity, Ethernet-enabled TriStar MPPT models, local discovery, and remote access."
+    },
+    {
+      "id": "rsc1-operation-manual",
+      "title": "RSC-1 RS-232 to EIA-485 Communications Adapter Installation and Operation Manual",
+      "url": "https://www.morningstarcorp.com/wp-content/uploads/operation-manual-rsc-eia-485-to-serial-en.pdf",
+      "filename": "rsc1-rs232-eia485-operation-manual.pdf",
+      "format": "pdf",
+      "priority": "primary",
+      "relevance": "Adapter wiring and serial characteristics for RS-232/USB-to-RS-232 clients connected to Morningstar EIA-485 networks."
+    },
+    {
+      "id": "tristar-mppt-operation-manual",
+      "title": "TriStar MPPT Installation, Operation and Maintenance Manual",
+      "url": "https://www.morningstarcorp.com/wp-content/uploads/operation-manual-tristar-mppt-en.pdf",
+      "filename": "tristar-mppt-operation-manual.pdf",
+      "format": "pdf",
+      "priority": "primary",
+      "relevance": "Controller operating behavior, faults/alarms, and communications chapters for MeterBus, RS-232, EIA-485, and Ethernet."
+    },
+    {
+      "id": "tristar-mppt-meter-map",
+      "title": "TriStar MPPT Meter Map - Solar Charging",
+      "document_id": "MS-ZMAN-TSM2-04-B",
+      "url": "https://www.morningstarcorp.com/meter-map-tristar-mppt-en/",
+      "filename": "tristar-mppt-meter-map.pdf",
+      "format": "pdf",
+      "priority": "secondary",
+      "relevance": "Human-facing names for operating values, diagnostics, alarms, faults, charge states, counters, settings, and logged data."
+    },
+    {
+      "id": "tristar-mppt-eia485-bridge",
+      "title": "Using a TriStar MPPT for Bridged Communication on a Morningstar EIA-485 Network",
+      "document_date": "2011-12-22",
+      "url": "https://www.morningstarcorp.com/wp-content/uploads/2014/02/TSMPPT.REP_.485_bridging.01.EN_.pdf",
+      "filename": "tristar-mppt-eia485-modbus-tcp-bridging.pdf",
+      "format": "pdf",
+      "priority": "secondary",
+      "relevance": "Architecture reference for Modbus/TCP bridging from a TS-MPPT-60 to multiple Modbus devices on an EIA-485 bus."
+    },
+    {
+      "id": "tristar-mppt-product-page",
+      "title": "TriStar MPPT Product Page",
+      "url": "https://www.morningstarcorp.com/products/tristar-mppt/",
+      "format": "html",
+      "priority": "index",
+      "download": false,
+      "relevance": "Canonical product landing page linking the current manuals, meter map, Modbus document, firmware, and support resources."
+    }
+  ]
+}
