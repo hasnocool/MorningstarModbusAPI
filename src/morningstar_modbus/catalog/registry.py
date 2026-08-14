@@ -62,9 +62,13 @@ def _normalize(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", value.casefold()).strip()
 
 
-def select_spec(vendor_name: str, product_code: str) -> DeviceProfileSpec:
+def _is_explicit_non_morningstar_vendor(vendor_name: str) -> bool:
     vendor = _normalize(vendor_name)
-    if vendor and "morningstar" not in vendor:
+    return bool(vendor) and "morningstar" not in vendor
+
+
+def select_spec(vendor_name: str, product_code: str) -> DeviceProfileSpec:
+    if _is_explicit_non_morningstar_vendor(vendor_name):
         return GENERIC
     identity = _normalize(f"{vendor_name} {product_code}")
     product = _normalize(product_code)
@@ -92,6 +96,12 @@ async def detect_profile(
 
     selected = select_profile(identity.vendor_name, identity.product_code)
     if selected.name != "generic":
+        return selected
+
+    # Never fingerprint a device that explicitly identifies as another vendor. Fingerprints are
+    # reserved for Morningstar devices with incomplete identity strings and legacy devices that
+    # provide no Device Identification response at all.
+    if _is_explicit_non_morningstar_vendor(identity.vendor_name):
         return selected
 
     # SureSine Gen2 has a distinctive ratings block at 0x0003.
