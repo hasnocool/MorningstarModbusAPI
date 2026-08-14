@@ -5,8 +5,10 @@ import struct
 import pytest
 
 from morningstar_modbus.catalog import catalog_detail, catalog_summary, detect_profile
-from morningstar_modbus.catalog.registry import select_spec
+from morningstar_modbus.catalog.profile import CatalogProfile
+from morningstar_modbus.catalog.registry import PROFILES, select_spec
 from morningstar_modbus.catalog.scaling import float16
+from morningstar_modbus.catalog.types import DeviceProfileSpec, RegisterBlock, RegisterSpec
 from morningstar_modbus.models import DeviceIdentification
 
 
@@ -41,6 +43,20 @@ def test_catalog_exposes_structured_family_metadata() -> None:
     assert {"serial_number", "faults", "alarms", "charge_state"} <= register_names
 
 
+def test_every_named_register_is_covered_by_a_read_block() -> None:
+    for spec in PROFILES:
+        names = [register.name for register in spec.registers]
+        assert len(names) == len(set(names)), f"duplicate register name in {spec.name}"
+        for register in spec.registers:
+            register_end = register.address + register.words
+            assert any(
+                block.function == register.function
+                and block.address <= register.address
+                and register_end <= block.address + block.count
+                for block in spec.blocks
+            ), f"{spec.name}.{register.name} is outside its declared read blocks"
+
+
 def test_float16_decoder_matches_ieee_binary16() -> None:
     raw = struct.unpack(">H", struct.pack(">e", 12.5))[0]
     assert math.isclose(float16(raw), 12.5)
@@ -66,3 +82,74 @@ class SureSineGen2FingerprintClient:
 async def test_read_only_fingerprint_can_identify_suresine_gen2() -> None:
     profile = await detect_profile(SureSineGen2FingerprintClient(), DeviceIdentification())
     assert profile.name == "suresine_gen2"
+
+
+class NonMorningstarFingerprintClient(SureSineGen2FingerprintClient):
+    def __init__(self) -> None:
+        self.read_count = 0
+
+    async def read_holding_registers(self, address: int, count: int) -> list[int]:
+        self.read_count += 1
+        return await super().read_holding_registers(address, count)
+
+
+@pytest.mark.asyncio
+async def test_explicit_non_morningstar_vendor_is_never_fingerprinted() -> None:
+    client = NonMorningstarFingerprintClient()
+    identity = DeviceIdentification(vendor_name="Example Controls", product_code="EC-100")
+    profile = await detect_profile(client, identity)
+    assert profile.name == "generic"
+    assert client.read_count == 0
+
+
+class RetryMetadataClient:
+    def __init__(self) -> None:
+        self.metadata_reads = 0
+
+    async def read_holding_registers(self, address: int, count: int) -> list[int]:
+        if (address, count) == (0x0010, 1):
+            self.metadata_reads += 1
+            if self.metadata_reads == 1:
+                raise TimeoutError
+            return [42]
+        if (address, count) == (0x0020, 1):
+            return [7]
+        raise AssertionError((address, count))
+
+    async def read_input_registers(self, address: int, count: int) -> list[int]:
+        raise AssertionError((address, count))
+
+    async def read_device_identification(self) -> DeviceIdentification:
+        return DeviceIdentification()
+
+    async def close(self) -> None:
+        return None
+
+
+@pytest.mark.asyncio
+async def test_optional_cached_metadata_retries_after_transient_failure() -> None:
+    spec = DeviceProfileSpec(
+        name="metadata-retry-test",
+        family="test",
+        aliases=(),
+        source_id="test",
+        source_url="https://example.invalid/test",
+        blocks=(
+            RegisterBlock(0x0010, 1, category="metadata", optional=True, cache=True),
+            RegisterBlock(0x0020, 1),
+        ),
+        registers=(
+            RegisterSpec("metadata_value", 0x0010, category="metadata"),
+            RegisterSpec("telemetry_value", 0x0020),
+        ),
+    )
+    client = RetryMetadataClient()
+    profile = CatalogProfile(spec)
+
+    first = {value.name: value.value for value in await profile.poll(client)}
+    second = {value.name: value.value for value in await profile.poll(client)}
+
+    assert "metadata_value" not in first
+    assert second["metadata_value"] == 42
+    assert second["telemetry_value"] == 7
+    assert client.metadata_reads == 2
