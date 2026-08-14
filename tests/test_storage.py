@@ -1,7 +1,13 @@
 # tests/test_storage.py
 import pytest
 
-from morningstar_modbus.models import DeviceIdentification, DiscoveredDevice, Endpoint, PollResult, RegisterValue
+from morningstar_modbus.models import (
+    DeviceIdentification,
+    DiscoveredDevice,
+    Endpoint,
+    PollResult,
+    RegisterValue,
+)
 from morningstar_modbus.storage import TelemetryStore
 
 
@@ -15,7 +21,22 @@ async def test_store_round_trip(tmp_path) -> None:
     device_id = await store.upsert_device(device)
     await store.save_poll(
         device_id,
-        PollResult(endpoint, identity, "tristar_mppt", 1.5, (RegisterValue("battery_voltage", 0x18, "holding", (123,), 12.3, "V"),)),
+        PollResult(
+            endpoint,
+            identity,
+            "tristar_mppt",
+            1.5,
+            (
+                RegisterValue(
+                    "battery_voltage",
+                    0x18,
+                    "holding",
+                    (123,),
+                    12.3,
+                    "V",
+                ),
+            ),
+        ),
     )
     latest = await store.latest(device_id)
     assert latest is not None
