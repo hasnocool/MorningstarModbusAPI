@@ -1,5 +1,5 @@
 # src/morningstar_modbus/discovery.py
-"""Serial and bounded local TCP discovery."""
+"""Serial and bounded local TCP discovery with Morningstar family detection."""
 
 from __future__ import annotations
 
@@ -9,15 +9,15 @@ import logging
 import time
 from collections.abc import Iterable
 
+from morningstar_modbus.catalog import detect_profile
 from morningstar_modbus.config import AppConfig
 from morningstar_modbus.models import DeviceIdentification, DiscoveredDevice, Endpoint
-from morningstar_modbus.profiles import select_profile
 from morningstar_modbus.transport import AsyncModbusRtuClient, AsyncModbusTcpClient, ReadOnlyModbusClient
 
 LOGGER = logging.getLogger(__name__)
 
 
-async def _probe(client: ReadOnlyModbusClient) -> tuple[DeviceIdentification, float] | None:
+async def _probe(client: ReadOnlyModbusClient) -> tuple[DeviceIdentification, float, str] | None:
     started = time.perf_counter()
     try:
         try:
@@ -25,8 +25,9 @@ async def _probe(client: ReadOnlyModbusClient) -> tuple[DeviceIdentification, fl
         except Exception:
             await client.read_holding_registers(0, 1)
             identity = DeviceIdentification()
+        profile = await detect_profile(client, identity)
         latency_ms = (time.perf_counter() - started) * 1000.0
-        return identity, latency_ms
+        return identity, latency_ms, profile.name
     except (OSError, TimeoutError, ConnectionError):
         return None
     except Exception as exc:
@@ -69,8 +70,7 @@ async def discover_serial(config: AppConfig) -> list[DiscoveredDevice]:
                 )
             )
             if result is not None:
-                identity, latency_ms = result
-                profile = select_profile(identity.vendor_name, identity.product_code).name
+                identity, latency_ms, profile = result
                 found.append(DiscoveredDevice(endpoint, identity, latency_ms, profile))
     return found
 
@@ -108,13 +108,8 @@ async def discover_tcp(config: AppConfig) -> list[DiscoveredDevice]:
             )
             if result is None:
                 return None
-            identity, latency_ms = result
-            return DiscoveredDevice(
-                endpoint,
-                identity,
-                latency_ms,
-                select_profile(identity.vendor_name, identity.product_code).name,
-            )
+            identity, latency_ms, profile = result
+            return DiscoveredDevice(endpoint, identity, latency_ms, profile)
 
     tasks = [
         asyncio.create_task(probe_host(host, unit_id))
