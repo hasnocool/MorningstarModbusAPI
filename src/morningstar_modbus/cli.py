@@ -47,14 +47,28 @@ def build_parser() -> argparse.ArgumentParser:
 
 async def _discover(config: AppConfig) -> int:
     devices = await discover(config)
-    print(json.dumps([{"endpoint": asdict(d.endpoint), "identity": d.identification.to_dict(), "profile": d.profile, "latency_ms": d.latency_ms} for d in devices], indent=2))
+    payload = [
+        {
+            "endpoint": asdict(device.endpoint),
+            "identity": device.identification.to_dict(),
+            "profile": device.profile,
+            "latency_ms": device.latency_ms,
+        }
+        for device in devices
+    ]
+    print(json.dumps(payload, indent=2))
     return 0
 
 
 async def _read(config: AppConfig, args: argparse.Namespace) -> int:
     timeout = config.watch.request_timeout_seconds
     if args.transport == "tcp":
-        client = AsyncModbusTcpClient(args.target, port=args.tcp_port, unit_id=args.unit_id, timeout=timeout)
+        client = AsyncModbusTcpClient(
+            args.target,
+            port=args.tcp_port,
+            unit_id=args.unit_id,
+            timeout=timeout,
+        )
     else:
         client = AsyncModbusRtuClient(
             args.target,
@@ -69,7 +83,17 @@ async def _read(config: AppConfig, args: argparse.Namespace) -> int:
             if args.function == "input"
             else await client.read_holding_registers(args.address, args.count)
         )
-        print(json.dumps({"address": args.address, "count": args.count, "function": args.function, "values": values}, indent=2))
+        print(
+            json.dumps(
+                {
+                    "address": args.address,
+                    "count": args.count,
+                    "function": args.function,
+                    "values": values,
+                },
+                indent=2,
+            )
+        )
         return 0
     finally:
         await client.close()
@@ -92,7 +116,12 @@ async def _watch(config: AppConfig) -> int:
 async def _serve(config: AppConfig) -> int:
     store = TelemetryStore(config.database.path)
     server = uvicorn.Server(
-        uvicorn.Config(create_app(store), host=config.api.host, port=config.api.port, log_level="info")
+        uvicorn.Config(
+            create_app(store),
+            host=config.api.host,
+            port=config.api.port,
+            log_level="info",
+        )
     )
     await server.serve()
     return 0
@@ -103,11 +132,19 @@ async def _run(config: AppConfig) -> int:
     await store.initialize()
     watcher = Watcher(config, store)
     server = uvicorn.Server(
-        uvicorn.Config(create_app(store), host=config.api.host, port=config.api.port, log_level="info")
+        uvicorn.Config(
+            create_app(store),
+            host=config.api.host,
+            port=config.api.port,
+            log_level="info",
+        )
     )
     watcher_task = asyncio.create_task(watcher.run(), name="morningstar-watcher")
     server_task = asyncio.create_task(server.serve(), name="morningstar-api")
-    done, pending = await asyncio.wait({watcher_task, server_task}, return_when=asyncio.FIRST_COMPLETED)
+    done, pending = await asyncio.wait(
+        {watcher_task, server_task},
+        return_when=asyncio.FIRST_COMPLETED,
+    )
     await watcher.stop()
     server.should_exit = True
     for task in pending:
