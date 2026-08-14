@@ -32,30 +32,35 @@ def create_app(store: TelemetryStore) -> FastAPI:
     async def devices() -> list[dict[str, object]]:
         return await store.list_devices()
 
-    @app.get("/v1/devices/{device_id}")
-    async def device(device_id: str) -> dict[str, object]:
-        record = await store.get_device(device_id)
-        if record is None:
-            raise HTTPException(status_code=404, detail="device not found")
-        return record
-
-    @app.get("/v1/devices/{device_id}/latest")
-    async def latest(device_id: str) -> dict[str, object]:
+    @app.get("/v1/devices/latest")
+    async def latest(device_id: str = Query(...)) -> dict[str, object]:
+        import logging
+        logging.getLogger(__name__).info(f"Looking up latest for device: {device_id!r}")
         record = await store.latest(device_id)
         if record is None:
             raise HTTPException(status_code=404, detail="no samples for device")
         return record
 
-    @app.get("/v1/devices/{device_id}/samples")
-    async def samples(device_id: str, limit: int = Query(100, ge=1, le=5000)) -> list[dict[str, object]]:
+    @app.get("/v1/devices/samples")
+    async def samples(
+        device_id: str = Query(...),
+        limit: int = Query(100, ge=1, le=5000),
+    ) -> list[dict[str, object]]:
         return await store.samples(device_id, limit=limit)
 
-    @app.get("/v1/devices/{device_id}/registers/{name}/history")
+    @app.get("/v1/devices/registers/{name}/history")
     async def register_history(
-        device_id: str,
         name: str,
+        device_id: str = Query(...),
         limit: int = Query(1000, ge=1, le=10000),
     ) -> list[dict[str, object]]:
         return await store.register_history(device_id, name, limit=limit)
+
+    @app.get("/v1/devices/{device_id:path}")
+    async def device(device_id: str) -> dict[str, object]:
+        record = await store.get_device(device_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="device not found")
+        return record
 
     return app
