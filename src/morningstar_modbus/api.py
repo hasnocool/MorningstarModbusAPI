@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException, Query
 
 from morningstar_modbus import __version__
 from morningstar_modbus.catalog import catalog_detail, catalog_summary
+from morningstar_modbus.intelligence import effective_register_map
 from morningstar_modbus.storage import TelemetryStore
 
 LOGGER = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ def create_app(store: TelemetryStore) -> FastAPI:
     app = FastAPI(
         title="Morningstar Modbus API",
         version=__version__,
-        description="Read-only API for persisted Morningstar Modbus telemetry.",
+        description="Read-only API for persisted Morningstar Modbus telemetry and device intelligence.",
         lifespan=lifespan,
     )
 
@@ -54,6 +55,39 @@ def create_app(store: TelemetryStore) -> FastAPI:
         if record is None:
             raise HTTPException(status_code=404, detail="no samples for device")
         return record
+
+    @app.get("/v1/devices/intelligence")
+    async def device_intelligence(device_id: str = Query(...)) -> dict[str, object]:
+        record = await store.get_device_intelligence(device_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="device intelligence not found")
+        return record
+
+    @app.get("/v1/devices/register-map")
+    async def device_register_map(device_id: str = Query(...)) -> dict[str, object]:
+        intelligence = await store.get_device_intelligence(device_id)
+        if intelligence is None:
+            raise HTTPException(status_code=404, detail="device intelligence not found")
+        register_map = effective_register_map(
+            str(intelligence["profile"]),
+            intelligence.get("firmware", ""),
+        )
+        if register_map is None:
+            raise HTTPException(status_code=404, detail="catalog profile not found")
+        return register_map
+
+    @app.get("/v1/devices/profile/validation")
+    async def device_profile_validation(device_id: str = Query(...)) -> dict[str, object]:
+        intelligence = await store.get_device_intelligence(device_id)
+        if intelligence is None:
+            raise HTTPException(status_code=404, detail="device intelligence not found")
+        return {
+            "profile": intelligence["profile"],
+            "confidence": intelligence["confidence"],
+            "status": intelligence["intelligence_status"],
+            "evidence": intelligence["evidence"],
+            "warnings": intelligence["warnings"],
+        }
 
     @app.get("/v1/devices/samples")
     async def samples(

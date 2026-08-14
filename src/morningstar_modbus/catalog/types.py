@@ -20,6 +20,8 @@ class RegisterBlock:
     category: RegisterCategory = "telemetry"
     optional: bool = False
     cache: bool = False
+    since_firmware: str | None = None
+    until_firmware: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +38,8 @@ class RegisterSpec:
     enum: tuple[tuple[int, str], ...] = ()
     bits: tuple[tuple[int, str], ...] = ()
     description: str = ""
+    since_firmware: str | None = None
+    until_firmware: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +58,9 @@ class DeviceProfileSpec:
     detection_priority: int = 100
     coverage: str = "documented"
     notes: str = ""
+    catalog_revision: str = ""
+    firmware_verified_min: str | None = None
+    firmware_verified_max: str | None = None
 
     @property
     def register_names(self) -> tuple[str, ...]:
@@ -71,6 +78,9 @@ class DeviceProfileSpec:
             "detection_priority": self.detection_priority,
             "coverage": self.coverage,
             "notes": self.notes,
+            "catalog_revision": self.catalog_revision,
+            "firmware_verified_min": self.firmware_verified_min,
+            "firmware_verified_max": self.firmware_verified_max,
             "blocks": [
                 {
                     "address": block.address,
@@ -79,6 +89,8 @@ class DeviceProfileSpec:
                     "category": block.category,
                     "optional": block.optional,
                     "cache": block.cache,
+                    "since_firmware": block.since_firmware,
+                    "until_firmware": block.until_firmware,
                 }
                 for block in self.blocks
             ],
@@ -97,6 +109,8 @@ class DeviceProfileSpec:
                     "enum": dict(register.enum),
                     "bits": dict(register.bits),
                     "description": register.description,
+                    "since_firmware": register.since_firmware,
+                    "until_firmware": register.until_firmware,
                 }
                 for register in self.registers
             ]

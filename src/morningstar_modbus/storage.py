@@ -10,6 +10,7 @@ from pathlib import Path
 
 import aiosqlite
 
+from morningstar_modbus.intelligence.models import DeviceIntelligence
 from morningstar_modbus.models import DiscoveredDevice, PollResult
 
 SCHEMA = """
@@ -33,6 +34,24 @@ CREATE TABLE IF NOT EXISTS devices (
     first_seen TEXT NOT NULL,
     last_seen TEXT NOT NULL,
     last_error TEXT
+);
+CREATE TABLE IF NOT EXISTS device_intelligence (
+    device_id TEXT PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
+    profile TEXT NOT NULL,
+    family TEXT NOT NULL,
+    model TEXT NOT NULL DEFAULT '',
+    serial_number TEXT NOT NULL DEFAULT '',
+    firmware TEXT NOT NULL DEFAULT '',
+    hardware_revision TEXT NOT NULL DEFAULT '',
+    catalog_revision TEXT NOT NULL DEFAULT '',
+    confidence REAL NOT NULL,
+    intelligence_status TEXT NOT NULL,
+    capabilities_json TEXT NOT NULL,
+    network_json TEXT NOT NULL,
+    evidence_json TEXT NOT NULL,
+    warnings_json TEXT NOT NULL,
+    metadata_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS poll_samples (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -116,7 +135,69 @@ class TelemetryStore:
                 ),
             )
             await db.commit()
+        if device.intelligence is not None:
+            await self.save_device_intelligence(device_id, device.intelligence)
         return device_id
+
+    async def save_device_intelligence(
+        self,
+        device_id: str,
+        intelligence: DeviceIntelligence,
+    ) -> None:
+        now = utcnow()
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                """
+                INSERT INTO device_intelligence (
+                    device_id, profile, family, model, serial_number, firmware, hardware_revision,
+                    catalog_revision, confidence, intelligence_status, capabilities_json, network_json,
+                    evidence_json, warnings_json, metadata_json, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(device_id) DO UPDATE SET
+                    profile=excluded.profile, family=excluded.family, model=excluded.model,
+                    serial_number=excluded.serial_number, firmware=excluded.firmware,
+                    hardware_revision=excluded.hardware_revision,
+                    catalog_revision=excluded.catalog_revision, confidence=excluded.confidence,
+                    intelligence_status=excluded.intelligence_status,
+                    capabilities_json=excluded.capabilities_json, network_json=excluded.network_json,
+                    evidence_json=excluded.evidence_json, warnings_json=excluded.warnings_json,
+                    metadata_json=excluded.metadata_json, updated_at=excluded.updated_at
+                """,
+                (
+                    device_id,
+                    intelligence.profile,
+                    intelligence.family,
+                    intelligence.model,
+                    intelligence.serial_number,
+                    intelligence.firmware,
+                    intelligence.hardware_revision,
+                    intelligence.catalog_revision,
+                    intelligence.confidence,
+                    intelligence.status,
+                    json.dumps(list(intelligence.capabilities)),
+                    json.dumps(dict(intelligence.network)),
+                    json.dumps([item.to_dict() for item in intelligence.evidence]),
+                    json.dumps([item.to_dict() for item in intelligence.warnings]),
+                    json.dumps(dict(intelligence.metadata)),
+                    now,
+                ),
+            )
+            await db.commit()
+
+    async def get_device_intelligence(self, device_id: str) -> dict[str, object] | None:
+        rows = await self._query_all(
+            "SELECT * FROM device_intelligence WHERE device_id=?",
+            (device_id,),
+        )
+        if not rows:
+            return None
+        row = rows[0]
+        row["capabilities"] = json.loads(str(row.pop("capabilities_json")))
+        row["network"] = json.loads(str(row.pop("network_json")))
+        row["evidence"] = json.loads(str(row.pop("evidence_json")))
+        row["warnings"] = json.loads(str(row.pop("warnings_json")))
+        row["metadata"] = json.loads(str(row.pop("metadata_json")))
+        return row
 
     async def save_poll(self, device_id: str, result: PollResult) -> int:
         now = utcnow()
