@@ -72,7 +72,7 @@ class TelemetryStore:
         self.path = path
 
     async def initialize(self) -> None:
-        parent = Path(self.path).expanduser().resolve().parent
+        parent = await asyncio.to_thread(lambda: Path(self.path).expanduser().resolve().parent)
         await asyncio.to_thread(parent.mkdir, parents=True, exist_ok=True)
         async with aiosqlite.connect(self.path) as db:
             await db.executescript(SCHEMA)
@@ -98,10 +98,21 @@ class TelemetryStore:
                     status='online', last_seen=excluded.last_seen, last_error=NULL
                 """,
                 (
-                    device_id, endpoint.stable_key, endpoint.transport, endpoint.target, endpoint.port,
-                    endpoint.unit_id, endpoint.usb_serial, endpoint.usb_vid, endpoint.usb_pid,
-                    device.identification.vendor_name, device.identification.product_code,
-                    device.identification.major_minor_revision, device.profile, now, now,
+                    device_id,
+                    endpoint.stable_key,
+                    endpoint.transport,
+                    endpoint.target,
+                    endpoint.port,
+                    endpoint.unit_id,
+                    endpoint.usb_serial,
+                    endpoint.usb_vid,
+                    endpoint.usb_pid,
+                    device.identification.vendor_name,
+                    device.identification.product_code,
+                    device.identification.major_minor_revision,
+                    device.profile,
+                    now,
+                    now,
                 ),
             )
             await db.commit()
@@ -125,8 +136,14 @@ class TelemetryStore:
                     text = str(value.value)
                 rows.append(
                     (
-                        sample_id, value.name, value.address, value.function,
-                        json.dumps(value.raw), numeric, text, value.unit,
+                        sample_id,
+                        value.name,
+                        value.address,
+                        value.function,
+                        json.dumps(value.raw),
+                        numeric,
+                        text,
+                        value.unit,
                     )
                 )
             await db.executemany(
@@ -166,7 +183,8 @@ class TelemetryStore:
 
     async def latest(self, device_id: str) -> dict[str, object] | None:
         samples = await self._query_all(
-            "SELECT * FROM poll_samples WHERE device_id=? ORDER BY observed_at DESC LIMIT 1", (device_id,)
+            "SELECT * FROM poll_samples WHERE device_id=? ORDER BY observed_at DESC LIMIT 1",
+            (device_id,),
         )
         if not samples:
             return None
@@ -195,7 +213,11 @@ class TelemetryStore:
         )
 
     async def register_history(
-        self, device_id: str, name: str, *, limit: int = 1000
+        self,
+        device_id: str,
+        name: str,
+        *,
+        limit: int = 1000,
     ) -> list[dict[str, object]]:
         rows = await self._query_all(
             """
@@ -215,7 +237,11 @@ class TelemetryStore:
             row["value"] = numeric if numeric is not None else text
         return rows
 
-    async def _query_all(self, sql: str, params: tuple[object, ...] = ()) -> list[dict[str, object]]:
+    async def _query_all(
+        self,
+        sql: str,
+        params: tuple[object, ...] = (),
+    ) -> list[dict[str, object]]:
         async with aiosqlite.connect(self.path) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(sql, params)
