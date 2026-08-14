@@ -1,5 +1,5 @@
 # src/morningstar_modbus/watcher.py
-"""Continuous discovery and catalog-driven polling runtime."""
+"""Continuous discovery and firmware-aware catalog polling runtime."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import time
 from morningstar_modbus.catalog import CatalogProfile, get_profile
 from morningstar_modbus.config import AppConfig
 from morningstar_modbus.discovery import discover
+from morningstar_modbus.intelligence import DeviceIntelligence, refresh_intelligence
 from morningstar_modbus.models import DiscoveredDevice, PollResult
 from morningstar_modbus.storage import TelemetryStore
 from morningstar_modbus.transport import AsyncModbusRtuClient, AsyncModbusTcpClient, ReadOnlyModbusClient
@@ -25,6 +26,7 @@ class Watcher:
         self._device_ids: dict[str, str] = {}
         self._clients: dict[str, ReadOnlyModbusClient] = {}
         self._profiles: dict[str, CatalogProfile] = {}
+        self._intelligence: dict[str, DeviceIntelligence] = {}
         self._stopping = asyncio.Event()
 
     async def stop(self) -> None:
@@ -32,6 +34,7 @@ class Watcher:
         clients = tuple(self._clients.values())
         self._clients.clear()
         self._profiles.clear()
+        self._intelligence.clear()
         if clients:
             await asyncio.gather(*(client.close() for client in clients), return_exceptions=True)
 
@@ -72,6 +75,8 @@ class Watcher:
                 )
             if endpoint_moved or profile_changed:
                 self._profiles.pop(key, None)
+            if device.intelligence is not None:
+                self._intelligence[key] = device.intelligence
             self._devices[key] = device
             self._device_ids[key] = await self.store.upsert_device(device)
         if found:
@@ -121,14 +126,26 @@ class Watcher:
             return
         client = self._client(key, device)
         profile = self._profile(key, device)
+        intelligence = self._intelligence.get(key)
         started = time.perf_counter()
         try:
-            values = await profile.poll(client)
+            values = await profile.poll(
+                client,
+                firmware=intelligence.firmware if intelligence is not None else "",
+            )
             latency_ms = (time.perf_counter() - started) * 1000.0
             await self.store.save_poll(
                 device_id,
                 PollResult(device.endpoint, device.identification, profile.name, latency_ms, values),
             )
+            if intelligence is not None:
+                intelligence = refresh_intelligence(
+                    intelligence,
+                    values,
+                    endpoint=device.endpoint,
+                )
+                self._intelligence[key] = intelligence
+                await self.store.save_device_intelligence(device_id, intelligence)
         except Exception as exc:
             LOGGER.warning("poll failed endpoint=%s error=%s", device.endpoint.locator, exc)
             await self.store.save_error(device_id, f"{type(exc).__name__}: {exc}")

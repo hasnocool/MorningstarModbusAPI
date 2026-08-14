@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from morningstar_modbus.catalog.compatibility import effective_items
 from morningstar_modbus.catalog.scaling import decode_value
 from morningstar_modbus.catalog.types import DeviceProfileSpec, RegisterBlock, RegisterSpec
 from morningstar_modbus.models import RegisterValue
@@ -33,6 +34,17 @@ class CatalogProfile:
             return await client.read_input_registers(block.address, block.count)
         return await client.read_holding_registers(block.address, block.count)
 
+    async def _read_words(
+        self,
+        client: ReadOnlyModbusClient,
+        function: str,
+        address: int,
+        count: int,
+    ) -> list[int]:
+        if function == "input":
+            return await client.read_input_registers(address, count)
+        return await client.read_holding_registers(address, count)
+
     async def _load_metadata(self, client: ReadOnlyModbusClient) -> None:
         async with self._metadata_lock:
             for block in self.spec.blocks:
@@ -51,19 +63,54 @@ class CatalogProfile:
                             block.address,
                             exc,
                         )
-                        # Do not mark a failed optional block as cached. A serial reconnect or a
-                        # controller becoming fully ready can make the same read succeed later.
                         continue
                     raise
                 for offset, word in enumerate(words):
                     self._metadata[(block.function, block.address + offset)] = word
                 self._cached_blocks.add(block_key)
 
-    async def poll(self, client: ReadOnlyModbusClient) -> tuple[RegisterValue, ...]:
+    async def read_metadata(self, client: ReadOnlyModbusClient) -> tuple[RegisterValue, ...]:
+        """Read stable/profile metadata without performing a full telemetry poll."""
+        await self._load_metadata(client)
+        async with self._metadata_lock:
+            for register in self.spec.registers:
+                if register.category != "metadata":
+                    continue
+                keys = [
+                    (register.function, address)
+                    for address in range(register.address, register.address + register.words)
+                ]
+                if all(key in self._metadata for key in keys):
+                    continue
+                try:
+                    words = await self._read_words(
+                        client,
+                        register.function,
+                        register.address,
+                        register.words,
+                    )
+                except Exception as exc:
+                    LOGGER.debug(
+                        "metadata field unavailable profile=%s register=%s: %s",
+                        self.name,
+                        register.name,
+                        exc,
+                    )
+                    continue
+                for offset, word in enumerate(words):
+                    self._metadata[(register.function, register.address + offset)] = word
+        return self._decode_named(dict(self._metadata), category="metadata")
+
+    async def poll(
+        self,
+        client: ReadOnlyModbusClient,
+        *,
+        firmware: object = "",
+    ) -> tuple[RegisterValue, ...]:
         await self._load_metadata(client)
         words_by_key = dict(self._metadata)
 
-        for block in self.spec.blocks:
+        for block in effective_items(self.spec.blocks, firmware):
             if block.cache:
                 continue
             try:
@@ -88,6 +135,16 @@ class CatalogProfile:
                 )
             )
 
+        values.extend(self._decode_named(words_by_key, firmware=firmware))
+        return tuple(values)
+
+    def _decode_named(
+        self,
+        words_by_key: dict[tuple[str, int], int],
+        *,
+        category: str | None = None,
+        firmware: object = "",
+    ) -> tuple[RegisterValue, ...]:
         holding_context = {
             address: word
             for (function, address), word in words_by_key.items()
@@ -98,7 +155,10 @@ class CatalogProfile:
             for (function, address), word in words_by_key.items()
             if function == "input"
         }
-        for register in self.spec.registers:
+        values: list[RegisterValue] = []
+        for register in effective_items(self.spec.registers, firmware):
+            if category is not None and register.category != category:
+                continue
             context = holding_context if register.function == "holding" else input_context
             addresses = range(register.address, register.address + register.words)
             raw = tuple(context[address] for address in addresses if address in context)

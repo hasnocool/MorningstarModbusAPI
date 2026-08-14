@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from morningstar_modbus.intelligence.models import DeviceIntelligence
 
 TransportName = Literal["serial", "tcp"]
 RegisterFunction = Literal["holding", "input"]
@@ -56,6 +59,7 @@ class DiscoveredDevice:
     identification: DeviceIdentification
     latency_ms: float
     profile: str
+    intelligence: DeviceIntelligence | None = None
 
 
 @dataclass(frozen=True, slots=True)
