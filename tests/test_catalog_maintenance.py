@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from tools.catalog_maintenance.diff import compare_observations
-from tools.catalog_maintenance.parser import parse_register_observations
-from tools.catalog_maintenance.provenance import enforce_review_gate
-from tools.catalog_maintenance.snapshot import catalog_source_ids
-from tools.catalog_maintenance.sources import load_sources, select_sources, validate_source_url
+from morningstar_modbus.maintenance.diff import compare_observations
+from morningstar_modbus.maintenance.parser import parse_register_observations
+from morningstar_modbus.maintenance.provenance import enforce_review_gate
+from morningstar_modbus.maintenance.snapshot import catalog_source_ids
+from morningstar_modbus.maintenance.sources import load_sources, select_sources, validate_source_url
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_INDEX = ROOT / "docs" / "vendor" / "morningstar" / "sources.json"

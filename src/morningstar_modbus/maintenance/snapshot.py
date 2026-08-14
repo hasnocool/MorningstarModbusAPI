@@ -1,4 +1,4 @@
-# tools/catalog_maintenance/snapshot.py
+# src/morningstar_modbus/maintenance/snapshot.py
 """Deterministic snapshots of the checked-in Morningstar catalog."""
 
 from __future__ import annotations

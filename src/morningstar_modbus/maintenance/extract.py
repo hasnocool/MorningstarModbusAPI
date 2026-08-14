@@ -1,4 +1,4 @@
-# tools/catalog_maintenance/extract.py
+# src/morningstar_modbus/maintenance/extract.py
 """Text extraction for vendor documents used by maintenance scans."""
 
 from __future__ import annotations

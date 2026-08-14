@@ -1,4 +1,4 @@
-# tools/catalog_maintenance/models.py
+# src/morningstar_modbus/maintenance/models.py
 """Structured records shared by the catalog-maintenance pipeline."""
 
 from __future__ import annotations

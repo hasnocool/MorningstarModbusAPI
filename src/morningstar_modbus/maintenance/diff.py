@@ -1,4 +1,4 @@
-# tools/catalog_maintenance/diff.py
+# src/morningstar_modbus/maintenance/diff.py
 """Compare extracted source observations with checked-in family definitions."""
 
 from __future__ import annotations
@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 
 from morningstar_modbus.catalog.registry import PROFILES
-from tools.catalog_maintenance.models import ProposedChange, RegisterObservation
+from morningstar_modbus.maintenance.models import ProposedChange, RegisterObservation
 
 _NORMALIZE_RE = re.compile(r"[^a-z0-9]+")
 

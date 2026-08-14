@@ -1,4 +1,4 @@
-# tools/catalog_maintenance/provenance.py
+# src/morningstar_modbus/maintenance/provenance.py
 """CI review gate for catalog edits derived from vendor documentation."""
 
 from __future__ import annotations

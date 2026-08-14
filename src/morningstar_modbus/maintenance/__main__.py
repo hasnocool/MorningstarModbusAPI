@@ -1,4 +1,4 @@
-# tools/catalog_maintenance/__main__.py
+# src/morningstar_modbus/maintenance/__main__.py
 """CLI entry point for source validation and advisory Morningstar catalog scans."""
 
 from __future__ import annotations
@@ -7,15 +7,15 @@ import argparse
 import json
 from pathlib import Path
 
-from tools.catalog_maintenance.diff import compare_observations
-from tools.catalog_maintenance.extract import extract_pdf_pages
-from tools.catalog_maintenance.parser import parse_register_observations
-from tools.catalog_maintenance.provenance import changed_paths, enforce_review_gate
-from tools.catalog_maintenance.report import write_report
-from tools.catalog_maintenance.snapshot import catalog_snapshot, catalog_source_ids
-from tools.catalog_maintenance.sources import download_source, load_sources, select_sources
+from morningstar_modbus.maintenance.diff import compare_observations
+from morningstar_modbus.maintenance.extract import extract_pdf_pages
+from morningstar_modbus.maintenance.parser import parse_register_observations
+from morningstar_modbus.maintenance.provenance import changed_paths, enforce_review_gate
+from morningstar_modbus.maintenance.report import write_report
+from morningstar_modbus.maintenance.snapshot import catalog_snapshot, catalog_source_ids
+from morningstar_modbus.maintenance.sources import download_source, load_sources, select_sources
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 SOURCE_INDEX = ROOT / "docs" / "vendor" / "morningstar" / "sources.json"
 DEFAULT_CACHE = ROOT / "docs" / "vendor" / "morningstar" / "cache"
 DEFAULT_OUTPUT = ROOT / "catalog-maintenance-report"

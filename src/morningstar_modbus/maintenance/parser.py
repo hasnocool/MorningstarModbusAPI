@@ -1,11 +1,11 @@
-# tools/catalog_maintenance/parser.py
+# src/morningstar_modbus/maintenance/parser.py
 """Conservative extraction of register observations from vendor document text."""
 
 from __future__ import annotations
 
 import re
 
-from tools.catalog_maintenance.models import RegisterObservation
+from morningstar_modbus.maintenance.models import RegisterObservation
 
 _ADDRESS_RE = re.compile(r"\b0[xX]([0-9A-Fa-f]{4})\b")
 _IDENTIFIER_RE = re.compile(r"\b[A-Za-z][A-Za-z0-9_]{2,}\b")

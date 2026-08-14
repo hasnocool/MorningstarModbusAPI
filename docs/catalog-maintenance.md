@@ -1,7 +1,7 @@
 # Automated Catalog Maintenance
 
 MorningstarModbusAPI keeps vendor-document monitoring separate from the runtime service. The
-`tools.catalog_maintenance` package can refresh the official Modbus documents already referenced by
+`morningstar_modbus.maintenance` package can refresh the official Modbus documents already referenced by
 the product catalog, extract conservative register observations, compare those observations with
 the checked-in family definitions, and produce an advisory diff for human review.
 
@@ -10,8 +10,8 @@ It **never rewrites a family module automatically**.
 ## Directory layout
 
 ```text
-tools/
-└── catalog_maintenance/
+src/morningstar_modbus/
+└── maintenance/
     ├── __main__.py        # validate / scan CLI
     ├── diff.py            # observations vs checked-in profiles
     ├── extract.py         # PDF text extraction
@@ -29,8 +29,8 @@ catalog-proposals/
 └── catalog-maintenance.yml
 ```
 
-Runtime code remains under `src/morningstar_modbus/`; source ingestion and review automation stay
-under `tools/`.
+The maintenance package is installed with the project so tests and CI import it consistently, but
+it has no runtime service hooks. PDF support remains optional and is loaded only by maintenance scans.
 
 ## Pipeline
 
@@ -54,20 +54,20 @@ controller behavior.
 Validate source coverage and the checked-in catalog:
 
 ```bash
-python -m tools.catalog_maintenance validate
+python -m morningstar_modbus.maintenance validate
 ```
 
 Validate a proposed catalog edit against a base commit or branch:
 
 ```bash
-python -m tools.catalog_maintenance validate --base-ref origin/main
+python -m morningstar_modbus.maintenance validate --base-ref origin/main
 ```
 
 Install PDF support and scan the current official source set:
 
 ```bash
 python -m pip install -e '.[maintenance]'
-python -m tools.catalog_maintenance scan
+python -m morningstar_modbus.maintenance scan
 ```
 
 The default PDF cache remains under `docs/vendor/morningstar/cache/` and is ignored by Git. Reports

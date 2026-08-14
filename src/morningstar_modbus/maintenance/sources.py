@@ -1,4 +1,4 @@
-# tools/catalog_maintenance/sources.py
+# src/morningstar_modbus/maintenance/sources.py
 """Secure loading and downloading of official Morningstar catalog sources."""
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from tools.catalog_maintenance.models import SourceArtifact, SourceDocument
+from morningstar_modbus.maintenance.models import SourceArtifact, SourceDocument
 
 USER_AGENT = (
     "MorningstarModbusAPI-catalog-maintenance/1.0 "

@@ -1,4 +1,4 @@
-# tools/catalog_maintenance/report.py
+# src/morningstar_modbus/maintenance/report.py
 """Render machine-readable and human-readable catalog maintenance reports."""
 
 from __future__ import annotations
@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from tools.catalog_maintenance.models import ProposedChange, SourceArtifact
+from morningstar_modbus.maintenance.models import ProposedChange, SourceArtifact
 
 
 def write_report(
