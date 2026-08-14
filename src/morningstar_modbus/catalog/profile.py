@@ -21,7 +21,7 @@ class CatalogProfile:
         self.spec = spec
         self.name = spec.name
         self._metadata: dict[tuple[str, int], int] = {}
-        self._metadata_loaded = False
+        self._cached_blocks: set[tuple[str, int, int]] = set()
         self._metadata_lock = asyncio.Lock()
 
     async def _read_block(
@@ -34,13 +34,12 @@ class CatalogProfile:
         return await client.read_holding_registers(block.address, block.count)
 
     async def _load_metadata(self, client: ReadOnlyModbusClient) -> None:
-        if self._metadata_loaded:
-            return
         async with self._metadata_lock:
-            if self._metadata_loaded:
-                return
             for block in self.spec.blocks:
                 if not block.cache:
+                    continue
+                block_key = (block.function, block.address, block.count)
+                if block_key in self._cached_blocks:
                     continue
                 try:
                     words = await self._read_block(client, block)
@@ -52,11 +51,13 @@ class CatalogProfile:
                             block.address,
                             exc,
                         )
+                        # Do not mark a failed optional block as cached. A serial reconnect or a
+                        # controller becoming fully ready can make the same read succeed later.
                         continue
                     raise
                 for offset, word in enumerate(words):
                     self._metadata[(block.function, block.address + offset)] = word
-            self._metadata_loaded = True
+                self._cached_blocks.add(block_key)
 
     async def poll(self, client: ReadOnlyModbusClient) -> tuple[RegisterValue, ...]:
         await self._load_metadata(client)
