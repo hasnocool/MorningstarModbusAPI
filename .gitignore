@@ -12,3 +12,4 @@ htmlcov/
 .env
 .DS_Store
 docs/vendor/morningstar/cache/
+catalog-maintenance-report/
