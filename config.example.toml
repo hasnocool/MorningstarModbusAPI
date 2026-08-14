@@ -1,0 +1,31 @@
+# MorningstarModbusAPI example configuration
+
+[database]
+path = "./morningstar.db"
+
+[watch]
+poll_interval_seconds = 5.0
+discovery_interval_seconds = 30.0
+request_timeout_seconds = 1.5
+unit_ids = [1]
+max_tcp_concurrency = 32
+
+[serial]
+enabled = true
+baudrate = 9600
+stop_bits = 2
+# Optional allowlist. Leave empty to inspect all enumerated serial devices.
+ports = []
+
+[tcp]
+enabled = true
+port = 502
+# Explicit hosts are safest and are checked every discovery cycle.
+hosts = []
+# Optional local CIDRs. Example: ["192.168.1.0/24"]
+# Networks larger than /20 are rejected to prevent accidental broad scanning.
+subnets = []
+
+[api]
+host = "127.0.0.1"
+port = 8080

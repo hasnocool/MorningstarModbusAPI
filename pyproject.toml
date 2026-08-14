@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "morningstar-modbus-api"
+version = "0.1.0"
+description = "Read-only Morningstar Modbus RTU/TCP discovery, telemetry persistence, and HTTP API service."
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+authors = [{name = "hasnocool"}]
+dependencies = [
+  "aiosqlite>=0.22.1,<1",
+  "fastapi>=0.139.2,<1",
+  "pyserial>=3.5,<4",
+  "uvicorn>=0.51.0,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.28.1,<1",
+  "pytest>=9.0.2,<10",
+  "pytest-asyncio>=1.1.0,<2",
+  "ruff>=0.12.8,<1",
+]
+
+[project.scripts]
+morningstar-modbus = "morningstar_modbus.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/morningstar_modbus"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
