@@ -19,6 +19,7 @@ class RegisterBlock:
 
 class Profile(Protocol):
     name: str
+
     async def poll(self, client: ReadOnlyModbusClient) -> tuple[RegisterValue, ...]: ...
 
 
@@ -31,7 +32,13 @@ def fixed_point_scale(high_word: int, low_word: int) -> float:
     return float(high_word & 0xFFFF) + float(low_word & 0xFFFF) / 65536.0
 
 
-def _metric(name: str, address: int, raw: int, value: float | int | str, unit: str | None = None) -> RegisterValue:
+def _metric(
+    name: str,
+    address: int,
+    raw: int,
+    value: float | int | str,
+    unit: str | None = None,
+) -> RegisterValue:
     return RegisterValue(name, address, "holding", (raw,), value, unit)
 
 
@@ -53,8 +60,16 @@ class TriStarMpptProfile:
             return (raw[address] & 0xFFFF) * voltage_scale * current_scale / 131072.0
 
         charge_states = {
-            0: "START", 1: "NIGHT_CHECK", 2: "DISCONNECT", 3: "NIGHT", 4: "FAULT",
-            5: "MPPT", 6: "ABSORPTION", 7: "FLOAT", 8: "EQUALIZE", 9: "SLAVE",
+            0: "START",
+            1: "NIGHT_CHECK",
+            2: "DISCONNECT",
+            3: "NIGHT",
+            4: "FAULT",
+            5: "MPPT",
+            6: "ABSORPTION",
+            7: "FLOAT",
+            8: "EQUALIZE",
+            9: "SLAVE",
         }
         values = [
             _metric("battery_voltage", 0x0018, raw[0x0018], voltage(0x0018), "V"),
@@ -67,7 +82,12 @@ class TriStarMpptProfile:
             _metric("rts_temp", 0x0024, raw[0x0024], signed_16(raw[0x0024]), "C"),
             _metric("battery_temp", 0x0025, raw[0x0025], signed_16(raw[0x0025]), "C"),
             _metric("faults", 0x002C, raw[0x002C], raw[0x002C]),
-            _metric("charge_state", 0x0032, raw[0x0032], charge_states.get(raw[0x0032], str(raw[0x0032]))),
+            _metric(
+                "charge_state",
+                0x0032,
+                raw[0x0032],
+                charge_states.get(raw[0x0032], str(raw[0x0032])),
+            ),
             _metric("target_voltage", 0x0033, raw[0x0033], voltage(0x0033), "V"),
             _metric("output_power", 0x003A, raw[0x003A], power(0x003A), "W"),
             _metric("input_power", 0x003B, raw[0x003B], power(0x003B), "W"),
