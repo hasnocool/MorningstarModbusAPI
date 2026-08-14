@@ -5,8 +5,14 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from typing import Protocol
 
 _VERSION_RE = re.compile(r"\d+")
+
+
+class FirmwareGated(Protocol):
+    since_firmware: str | None
+    until_firmware: str | None
 
 
 def version_tuple(value: object) -> tuple[int, ...]:
@@ -37,13 +43,13 @@ def in_range(value: object, *, since: str | None = None, until: str | None = Non
     return True
 
 
-def effective_items(items: Iterable[object], firmware: object) -> list[object]:
+def effective_items[T: FirmwareGated](items: Iterable[T], firmware: object) -> list[T]:
     return [
         item
         for item in items
         if in_range(
             firmware,
-            since=getattr(item, "since_firmware", None),
-            until=getattr(item, "until_firmware", None),
+            since=item.since_firmware,
+            until=item.until_firmware,
         )
     ]

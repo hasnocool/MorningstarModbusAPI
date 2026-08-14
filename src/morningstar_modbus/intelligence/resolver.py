@@ -77,8 +77,18 @@ async def resolve_device_intelligence(
         evidence.append(IntelligenceEvidence("fingerprint", "read-only register fingerprint matched", 0.22))
 
     metadata_values: tuple[RegisterValue, ...] = ()
+    warnings: list[ValidationIssue] = []
     if spec.name != "generic":
-        metadata_values = await profile.read_metadata(client)
+        try:
+            metadata_values = await profile.read_metadata(client)
+        except Exception as exc:
+            warnings.append(
+                ValidationIssue(
+                    "metadata-unavailable",
+                    f"optional identity metadata could not be read: {type(exc).__name__}",
+                    "info",
+                )
+            )
         if metadata_values:
             evidence.append(IntelligenceEvidence("metadata", "stable metadata registers decoded", 0.18))
 
@@ -97,7 +107,6 @@ async def resolve_device_intelligence(
         evidence.append(IntelligenceEvidence("serial", "serial number resolved", 0.06))
 
     confidence = score(tuple(evidence))
-    warnings: list[ValidationIssue] = []
     if spec.firmware_verified_max and version_tuple(firmware):
         if compare_versions(firmware, spec.firmware_verified_max) > 0:
             warnings.append(
