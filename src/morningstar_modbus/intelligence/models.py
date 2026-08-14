@@ -60,5 +60,5 @@ class DeviceIntelligence:
         payload["metadata"] = dict(self.metadata)
         return payload
 
-    def updated(self, **changes: object) -> "DeviceIntelligence":
+    def updated(self, **changes: object) -> DeviceIntelligence:
         return replace(self, **changes)
