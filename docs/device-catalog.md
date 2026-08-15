@@ -1,6 +1,6 @@
 # Morningstar device catalog
 
-MorningstarModbusAPI keeps product intelligence separate from transport, persistence, and API code. The catalog is the checked-in, reviewable source of truth for how supported Morningstar families are read and decoded.
+MorningstarModbusAPI keeps product intelligence separate from transport, persistence, API code, and verification evidence. The catalog is the checked-in, reviewable source of truth for how supported Morningstar families are read and decoded.
 
 ## Package layout
 
@@ -11,10 +11,11 @@ src/morningstar_modbus/
 │   ├── common.py          # shared state/fault/alarm dictionaries
 │   ├── compatibility.py   # numeric firmware comparison and gates
 │   ├── profile.py         # catalog-driven polling and metadata caching
-│   ├── registry.py        # model selection and conservative fingerprints
+│   ├── registry.py        # model selection, fingerprints, API payloads
 │   ├── scaling.py         # fixed-point, Float16, BCD, ASCII, bitfield helpers
-│   ├── types.py           # declarative catalog dataclasses
-│   └── families/
+│   ├── types.py           # declarative catalog + verification dataclasses
+│   ├── verification.py    # non-vendor verification evidence registry
+│   └── families/          # vendor-derived product definitions
 │       ├── genstar_mppt.py
 │       ├── readyedge.py
 │       ├── tristar_mppt.py
@@ -33,6 +34,8 @@ src/morningstar_modbus/
 ```
 
 A product family owns its register blocks, named fields, scaling rules, state dictionaries, fault/alarm definitions, model aliases, communications capabilities, network defaults, stable metadata fields, firmware constraints, catalog revision, and primary Morningstar source reference.
+
+Verification evidence does **not** live in the family module. `catalog/verification.py` records software/fixture/hardware evidence independently so a hardware observation is never presented as if it came from a Morningstar document.
 
 ## Identification policy
 
@@ -64,6 +67,21 @@ The intelligence/runtime layer uses those declarations to:
 - return a device-specific effective register map through the API;
 - retain the declarative family definition unchanged for review/history.
 
+## Verification evidence
+
+`VerificationSpec` is independent of the vendor-derived register map. The registry can report:
+
+- `document`: whether the profile has reviewed vendor-document grounding;
+- `software`: whether ordinary automated tests cover it;
+- `fixture`: whether deterministic replay coverage exists and what kind;
+- `hardware`: whether known physical hardware has been reviewed;
+- `models`: models represented by the evidence;
+- `firmware_versions`: firmware versions represented by reviewed evidence;
+- `fixture_paths`: checked-in replay fixtures;
+- `notes`: qualification/caveats.
+
+At present, TriStar MPPT is the only profile with explicit non-default verification metadata: document/software evidence is `verified`, fixture evidence is `synthetic`, and hardware evidence remains `pending`. The checked-in TS-MPPT-60 firmware-29 fixture is therefore regression evidence, not physical-device verification.
+
 ## Current family coverage
 
 | Profile | Product family | Runtime decoding | Metadata/networking |
@@ -85,11 +103,13 @@ Relay Driver is intentionally source-indexed rather than pretending an unverifie
 
 ## Catalog API
 
-`GET /v1/catalog` returns a compact list of known Morningstar families, capabilities, coverage status, read blocks, source references, and catalog metadata.
+`GET /v1/catalog` returns a compact list of known Morningstar families plus each profile's independent `verification` object.
 
-`GET /v1/catalog/{profile_name}` returns the detailed declarative register definition for a profile.
+`GET /v1/catalog/{profile_name}` returns the detailed declarative profile/register definition plus the same verification object.
 
-`GET /v1/devices/register-map?device_id=...` returns the effective profile after applying the connected device's firmware gates.
+`GET /v1/devices/register-map?device_id=...` is different: it returns the effective register map after applying the connected device's firmware gates. It is device-specific and does not replace catalog verification metadata.
+
+The `morningstar-modbus verify` command also has a separate role. Its `VerificationReport` describes what one live/replayed session could read and decode; it does not currently embed the catalog verification registry.
 
 ## Source policy
 
@@ -97,4 +117,4 @@ Every family module points to an official Morningstar source ID recorded in `doc
 
 Community examples are useful for tests and troubleshooting, but they are not authoritative enough to define a new register map by themselves.
 
-Catalog/source-index changes must satisfy the provenance gate documented in [`../catalog-proposals/README.md`](../catalog-proposals/README.md).
+Vendor-derived family/source-index changes must satisfy the provenance gate documented in [`../catalog-proposals/README.md`](../catalog-proposals/README.md). Verification-registry changes should instead be backed by the relevant tests/fixtures or reviewed hardware evidence.
