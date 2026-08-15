@@ -94,15 +94,15 @@ class Watcher:
     async def _refresh_devices(self) -> None:
         found = await discover(self.config)
         resolved: list[tuple[str, str, str, DiscoveredDevice]] = []
-        observed_connections: set[tuple[str, str]] = set()
         for device in found:
             key = device.endpoint.stable_key
             controller_id, device_id = await self.controller_inventory.register_observation(device)
             resolved.append((controller_id, device_id, key, device))
-            observed_connections.add((controller_id, key))
-        await self.controller_inventory.reconcile_presence(observed_connections)
 
         selected = self._select_controller_endpoints(resolved)
+        await self.controller_inventory.reconcile_presence(
+            {(controller_id, key) for controller_id, (_device_id, key, _device) in selected.items()}
+        )
         found_controller_ids = set(selected)
         missing_controller_ids = self._present_controller_ids - found_controller_ids
         for controller_id in missing_controller_ids:
