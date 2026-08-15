@@ -1,6 +1,10 @@
 # Automated catalog maintenance
 
-MorningstarModbusAPI keeps vendor-document monitoring separate from the runtime service. The `morningstar_modbus.maintenance` package validates the official source index, can download the approved Morningstar documents referenced by active profiles, extracts conservative register observations from PDFs, compares those observations with the checked-in catalog, and produces an advisory diff for human review.
+MorningstarModbusAPI keeps vendor-document monitoring separate from the runtime service. The
+`morningstar_modbus.maintenance` package validates the official source index, downloads the
+approved Morningstar documents referenced by active profiles, extracts conservative register-table
+observations from PDFs, compares those observations with the checked-in catalog, and produces an
+advisory report for human review.
 
 It **never rewrites a family module automatically**.
 
@@ -12,8 +16,8 @@ src/morningstar_modbus/
     ├── __main__.py        # validate / scan CLI
     ├── diff.py            # observations vs checked-in profiles
     ├── extract.py         # PDF text extraction
-    ├── models.py          # source/artifact/observation/proposal records
-    ├── parser.py          # conservative address/table extraction
+    ├── models.py          # source/artifact/observation/comparison records
+    ├── parser.py          # table-row extraction + address-space classification
     ├── provenance.py      # CI review gate
     ├── report.py          # JSON + Markdown reports
     ├── snapshot.py        # deterministic catalog snapshot
@@ -33,7 +37,8 @@ catalog-proposals/
 └── catalog-maintenance.yml
 ```
 
-The maintenance package is installed with the project so tests and CI import it consistently, but it has no runtime service hooks. PDF parsing support is optional and loaded only by maintenance scans.
+The maintenance package is installed with the project so tests and CI import it consistently, but
+it has no runtime service hooks. PDF parsing support is optional and loaded only by maintenance scans.
 
 ## Pipeline
 
@@ -43,13 +48,41 @@ The maintenance package is installed with the project so tests and CI import it 
 4. Download source artifacts into the selected cache directory.
 5. Record exact artifact SHA-256 and available HTTP metadata.
 6. Extract PDF page text with `pypdf`.
-7. Collect conservative `0xNNNN` register observations with source page/text provenance.
-8. Compare observations with the current `catalog/families/*.py` declarations.
-9. Emit deterministic `report.json` and `report.md` without modifying application code.
-10. A developer reviews the source, manually edits the catalog if warranted, changes/adds tests, and records a `catalog-proposals/*.json` provenance entry.
-11. CI rejects catalog/source-index edits that omit required provenance or tests.
+7. Parse **anchored vendor table rows** instead of treating every `0xNNNN` mention as a register.
+8. Track major address spaces/sections such as runtime RAM, EEPROM/configuration, coils/control,
+   logged data, examples, reserved rows, and alternate float encodings.
+9. Compare runtime rows with named register **word spans** and declared raw read blocks.
+10. Emit deterministic `report.json` and `report.md` without modifying application code.
+11. A developer reviews actionable conflicts separately from optional coverage candidates.
+12. Any accepted catalog/source change still requires tests and a `catalog-proposals/*.json`
+    provenance record.
 
-This intentionally favors false negatives over automatically converting noisy PDF extraction into controller behavior.
+This intentionally favors false negatives over turning noisy PDF extraction into controller behavior.
+
+## Why the scanner distinguishes conflicts from coverage candidates
+
+Morningstar documents frequently reuse the same numeric address in different Modbus address spaces.
+For example, a holding-register address and a coil address can both be `0x0018` without referring to
+the same value. Vendor documents also contain EEPROM settings, write-only actions, logger ranges,
+Float16 conversion examples, and narrative references to hexadecimal constants.
+
+The runtime catalog also intentionally uses semantic API names. A vendor field such as
+`VBTERM_F256` can legitimately map to `battery_terminal_voltage`; different spelling is not a
+discrepancy.
+
+The scanner therefore reports two classes:
+
+- **Actionable discrepancies** — a source observation directly conflicts with something the runtime
+  catalog already declares, such as a vendor row becoming reserved at a declared register address.
+- **Coverage candidates** — valid runtime table rows that are not yet represented by a named field
+  or active read block. These are opportunities for future expansion, not errors.
+
+Addresses that fall inside an existing multi-word field or raw read block are considered covered.
+Rows from EEPROM/configuration, coils/control, log storage, examples, reserved unused locations, and
+redundant alternate encodings are not treated as runtime coverage discrepancies.
+
+`report.json` keeps `proposed_changes` for actionable conflicts and adds
+`coverage_candidates`, `coverage_candidate_count`, and `ignored_observations`.
 
 ## Commands
 
@@ -104,9 +137,13 @@ Both are git-ignored.
 
 ## Vendor PDF policy
 
-Morningstar's official PDFs are source material, not project-authored files. The repository keeps the authoritative URLs/filenames and review provenance but does not republish complete vendor manuals. Local/CI maintenance scans obtain the documents directly from Morningstar and bind reviewed changes to the exact downloaded artifact using SHA-256.
+Morningstar's official PDFs are source material, not project-authored files. The repository keeps the
+authoritative URLs/filenames and review provenance but does not republish complete vendor manuals.
+Local/CI maintenance scans obtain the documents directly from Morningstar and bind reviewed changes
+to the exact downloaded artifact using SHA-256.
 
-See [`vendor/morningstar/pdfs/README.md`](vendor/morningstar/pdfs/README.md) for the official PDF manifest.
+See [`vendor/morningstar/pdfs/README.md`](vendor/morningstar/pdfs/README.md) for the official PDF
+manifest.
 
 ## Review provenance
 
@@ -127,13 +164,15 @@ A catalog/source update needs a JSON record such as:
 }
 ```
 
-The source hash binds code review to the exact artifact inspected. The generated maintenance report alone is not sufficient evidence because PDF extraction is heuristic.
+The source hash binds code review to the exact artifact inspected. The generated maintenance report
+alone is not sufficient evidence because PDF extraction is heuristic.
 
 ## GitHub Actions
 
 The catalog-maintenance workflow has two modes:
 
 - pull requests: validate source coverage, run the provenance gate, and execute catalog tests;
-- schedule/manual dispatch: download official documents and upload the advisory JSON/Markdown report as an Actions artifact.
+- schedule/manual dispatch: download official documents and upload the advisory JSON/Markdown report
+  as an Actions artifact.
 
 Scheduled/manual scans do not push commits, rewrite catalog code, or merge pull requests.

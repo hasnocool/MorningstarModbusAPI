@@ -68,12 +68,13 @@ def _scan(args: argparse.Namespace) -> int:
         observations.extend(parsed)
         print(
             f"{source.source_id}: sha256={artifact.sha256} "
-            f"pages={len(pages)} observations={len(parsed)}"
+            f"pages={len(pages)} table_rows={len(parsed)}"
         )
 
-    changes = compare_observations(tuple(observations))
-    json_path, markdown_path = write_report(output_dir, tuple(artifacts), changes)
-    print(f"actionable observations: {len(changes)}")
+    comparison = compare_observations(tuple(observations))
+    json_path, markdown_path = write_report(output_dir, tuple(artifacts), comparison)
+    print(f"actionable discrepancies: {comparison.actionable_count}")
+    print(f"coverage candidates: {comparison.coverage_candidate_count}")
     print(f"JSON report: {json_path}")
     print(f"Markdown report: {markdown_path}")
     return 0

@@ -4,6 +4,17 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from typing import Literal
+
+ObservationScope = Literal[
+    "runtime",
+    "configuration",
+    "control",
+    "log",
+    "example",
+    "reserved",
+    "alternate_encoding",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +55,7 @@ class RegisterObservation:
     page: int
     source_text: str
     confidence: float
+    scope: ObservationScope = "runtime"
 
     @property
     def address_hex(self) -> str:
@@ -75,3 +87,20 @@ class ProposedChange:
         payload = asdict(self)
         payload["address_hex"] = self.address_hex
         return payload
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogComparison:
+    """Partition source observations into real conflicts and optional coverage expansion."""
+
+    actionable: tuple[ProposedChange, ...]
+    coverage_candidates: tuple[ProposedChange, ...]
+    ignored_counts: tuple[tuple[str, int], ...] = ()
+
+    @property
+    def actionable_count(self) -> int:
+        return len(self.actionable)
+
+    @property
+    def coverage_candidate_count(self) -> int:
+        return len(self.coverage_candidates)
