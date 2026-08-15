@@ -263,8 +263,6 @@ async def test_watcher_deduplicates_simultaneous_serial_and_tcp_connections(tmp_
     controller_id = next(iter(watcher._present_controller_ids))
     controller = await watcher.controller_inventory.get_controller(controller_id)
     assert controller is not None
-    assert controller["active_connection_count"] == 2
-    assert {item["transport"] for item in controller["connections"] if item["role"] == "current"} == {
-        "serial",
-        "tcp",
-    }
+    assert controller["active_connection_count"] == 1
+    assert controller["current_connection"]["transport"] == "tcp"
+    assert {item["transport"] for item in controller["connections"]} == {"serial", "tcp"}
