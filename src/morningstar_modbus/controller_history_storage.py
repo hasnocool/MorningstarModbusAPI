@@ -6,7 +6,7 @@ import json
 
 import aiosqlite
 
-from morningstar_modbus.controller_history_types import ControllerDailyRecord, LIVEVIEW_SOURCE
+from morningstar_modbus.controller_history_types import LIVEVIEW_SOURCE, ControllerDailyRecord
 
 _HISTORY_SCHEMA = """
 PRAGMA foreign_keys=ON;
