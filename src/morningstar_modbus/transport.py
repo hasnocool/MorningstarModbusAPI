@@ -1,4 +1,3 @@
-# src/morningstar_modbus/transport.py
 """Non-blocking Modbus TCP and thread-isolated Modbus RTU transports."""
 
 from __future__ import annotations
@@ -7,11 +6,13 @@ import asyncio
 import logging
 import struct
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from morningstar_modbus.exceptions import ModbusDeviceError, ModbusProtocolError
-from morningstar_modbus.models import DeviceIdentification
+from morningstar_modbus.models import DeviceIdentification, ModbusExchange
 from morningstar_modbus.protocol import (
     READ_DEVICE_IDENTIFICATION,
     append_crc,
@@ -22,6 +23,7 @@ from morningstar_modbus.protocol import (
 )
 
 LOGGER = logging.getLogger(__name__)
+ExchangeObserver = Callable[[ModbusExchange], None]
 
 
 class ReadOnlyModbusClient(Protocol):
@@ -31,16 +33,35 @@ class ReadOnlyModbusClient(Protocol):
     async def close(self) -> None: ...
 
 
+def _request_shape(pdu: bytes) -> tuple[int | None, int | None]:
+    if len(pdu) >= 5 and pdu[0] in (0x03, 0x04):
+        return struct.unpack(">HH", pdu[1:5])
+    return None, None
+
+
+def _utcnow() -> str:
+    return datetime.now(UTC).isoformat()
+
+
 class AsyncModbusTcpClient:
     """Read-only Modbus TCP client using asyncio streams."""
 
-    def __init__(self, host: str, *, port: int = 502, unit_id: int = 1, timeout: float = 1.5) -> None:
+    def __init__(
+        self,
+        host: str,
+        *,
+        port: int = 502,
+        unit_id: int = 1,
+        timeout: float = 1.5,
+        observer: ExchangeObserver | None = None,
+    ) -> None:
         if not 1 <= unit_id <= 247:
             raise ValueError("unit_id must be 1..247")
         self.host = host
         self.port = port
         self.unit_id = unit_id
         self.timeout = timeout
+        self._observer = observer
         self._transaction_id = 0
         self._lock = asyncio.Lock()
 
@@ -58,12 +79,46 @@ class AsyncModbusTcpClient:
     async def close(self) -> None:
         return None
 
+    def _observe(
+        self,
+        pdu: bytes,
+        request: bytes,
+        response: bytes,
+        response_pdu: bytes,
+        started: float,
+        error: Exception | None,
+    ) -> None:
+        if self._observer is None:
+            return
+        address, count = _request_shape(pdu)
+        self._observer(
+            ModbusExchange(
+                timestamp=_utcnow(),
+                transport="tcp",
+                unit_id=self.unit_id,
+                function_code=pdu[0],
+                address=address,
+                count=count,
+                request_hex=request.hex(),
+                response_hex=response.hex(),
+                request_pdu_hex=pdu.hex(),
+                response_pdu_hex=response_pdu.hex(),
+                latency_ms=(time.perf_counter() - started) * 1000.0,
+                error_type=type(error).__name__ if error is not None else "",
+                error=str(error) if error is not None else "",
+            )
+        )
+
     async def _request(self, pdu: bytes) -> bytes:
         async with self._lock:
+            started = time.perf_counter()
             self._transaction_id = (self._transaction_id + 1) & 0xFFFF
             transaction_id = self._transaction_id
             request = struct.pack(">HHHB", transaction_id, 0, len(pdu) + 1, self.unit_id) + pdu
             writer: asyncio.StreamWriter | None = None
+            response = b""
+            response_pdu = b""
+            error: Exception | None = None
             try:
                 async with asyncio.timeout(self.timeout):
                     reader, writer = await asyncio.open_connection(self.host, self.port)
@@ -76,6 +131,14 @@ class AsyncModbusTcpClient:
                     if length < 2:
                         raise ModbusProtocolError("invalid Modbus TCP response length")
                     response_pdu = await reader.readexactly(length - 1)
+                    response = header + response_pdu
+                self._raise_if_exception(response_pdu)
+                if response_pdu[0] != pdu[0]:
+                    raise ModbusProtocolError("Modbus function code mismatch")
+                return response_pdu
+            except Exception as exc:
+                error = exc
+                raise
             finally:
                 if writer is not None:
                     writer.close()
@@ -83,10 +146,7 @@ class AsyncModbusTcpClient:
                         await writer.wait_closed()
                     except (ConnectionError, OSError):
                         pass
-            self._raise_if_exception(response_pdu)
-            if response_pdu[0] != pdu[0]:
-                raise ModbusProtocolError("Modbus function code mismatch")
-            return response_pdu
+                self._observe(pdu, request, response, response_pdu, started, error)
 
     @staticmethod
     def _raise_if_exception(pdu: bytes) -> None:
@@ -99,11 +159,7 @@ class AsyncModbusTcpClient:
 
 
 class AsyncModbusRtuClient:
-    """Read-only RTU client.
-
-    PySerial is blocking. All open/read/write/close operations run in a dedicated
-    single-worker executor, while asyncio.Lock guarantees request serialization.
-    """
+    """Read-only RTU client with blocking I/O isolated in one worker thread."""
 
     def __init__(
         self,
@@ -113,6 +169,7 @@ class AsyncModbusRtuClient:
         stop_bits: int = 2,
         unit_id: int = 1,
         timeout: float = 1.5,
+        observer: ExchangeObserver | None = None,
     ) -> None:
         if not 1 <= unit_id <= 247:
             raise ValueError("unit_id must be 1..247")
@@ -123,6 +180,7 @@ class AsyncModbusRtuClient:
         self.stop_bits = stop_bits
         self.unit_id = unit_id
         self.timeout = timeout
+        self._observer = observer
         self._serial: Any | None = None
         self._lock = asyncio.Lock()
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="morningstar-rtu")
@@ -147,16 +205,59 @@ class AsyncModbusRtuClient:
         await loop.run_in_executor(self._executor, self._close_blocking)
         await asyncio.to_thread(self._executor.shutdown, wait=True, cancel_futures=True)
 
+    def _observe(
+        self,
+        pdu: bytes,
+        request: bytes,
+        response: bytes,
+        response_pdu: bytes,
+        started: float,
+        error: Exception | None,
+    ) -> None:
+        if self._observer is None:
+            return
+        address, count = _request_shape(pdu)
+        self._observer(
+            ModbusExchange(
+                timestamp=_utcnow(),
+                transport="serial",
+                unit_id=self.unit_id,
+                function_code=pdu[0],
+                address=address,
+                count=count,
+                request_hex=request.hex(),
+                response_hex=response.hex(),
+                request_pdu_hex=pdu.hex(),
+                response_pdu_hex=response_pdu.hex(),
+                latency_ms=(time.perf_counter() - started) * 1000.0,
+                error_type=type(error).__name__ if error is not None else "",
+                error=str(error) if error is not None else "",
+            )
+        )
+
     async def _request(self, pdu: bytes) -> bytes:
         if self._closed:
             raise RuntimeError("RTU client is closed")
         async with self._lock:
+            started = time.perf_counter()
+            request = append_crc(bytes((self.unit_id,)) + pdu)
+            response = b""
+            response_pdu = b""
+            error: Exception | None = None
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(self._executor, self._exchange_blocking, pdu)
+            try:
+                response_pdu, response = await loop.run_in_executor(
+                    self._executor, self._exchange_blocking, pdu, request
+                )
+                return response_pdu
+            except Exception as exc:
+                error = exc
+                raise
+            finally:
+                self._observe(pdu, request, response, response_pdu, started, error)
 
-    def _exchange_blocking(self, pdu: bytes) -> bytes:
+    def _exchange_blocking(self, pdu: bytes, frame: bytes) -> tuple[bytes, bytes]:
         serial_port = self._ensure_open_blocking()
-        frame = append_crc(bytes((self.unit_id,)) + pdu)
         try:
             serial_port.reset_input_buffer()
             serial_port.reset_output_buffer()
@@ -177,7 +278,9 @@ class AsyncModbusRtuClient:
             if function_code in (0x03, 0x04):
                 byte_count_raw = self._read_exact(serial_port, 1, deadline)
                 byte_count = byte_count_raw[0]
-                response = prefix + byte_count_raw + self._read_exact(serial_port, byte_count + 2, deadline)
+                response = prefix + byte_count_raw + self._read_exact(
+                    serial_port, byte_count + 2, deadline
+                )
             elif function_code == 0x2B:
                 fixed = self._read_exact(serial_port, 6, deadline)
                 if fixed[0] != 0x0E or fixed[1] != 0x01:
@@ -195,7 +298,7 @@ class AsyncModbusRtuClient:
             response_pdu = response[1:-2]
             if response_pdu[0] != pdu[0]:
                 raise ModbusProtocolError("Modbus function code mismatch")
-            return response_pdu
+            return response_pdu, response
         except (OSError, TimeoutError):
             self._close_blocking()
             raise

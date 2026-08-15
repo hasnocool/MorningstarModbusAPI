@@ -1,4 +1,3 @@
-# src/morningstar_modbus/catalog/types.py
 """Declarative types for Morningstar register catalogs."""
 
 from __future__ import annotations
@@ -8,6 +7,33 @@ from typing import Literal
 
 RegisterFunction = Literal["holding", "input"]
 RegisterCategory = Literal["telemetry", "state", "fault", "alarm", "metadata", "network", "configuration"]
+VerificationState = Literal["verified", "partial", "synthetic", "pending", "unverified"]
+
+
+@dataclass(frozen=True, slots=True)
+class VerificationSpec:
+    """Evidence level for a catalog profile, separate from runtime identity confidence."""
+
+    document: VerificationState = "verified"
+    software: VerificationState = "verified"
+    fixture: VerificationState = "pending"
+    hardware: VerificationState = "pending"
+    firmware_versions: tuple[str, ...] = ()
+    models: tuple[str, ...] = ()
+    fixture_paths: tuple[str, ...] = ()
+    notes: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "document": self.document,
+            "software": self.software,
+            "fixture": self.fixture,
+            "hardware": self.hardware,
+            "firmware_versions": list(self.firmware_versions),
+            "models": list(self.models),
+            "fixture_paths": list(self.fixture_paths),
+            "notes": self.notes,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +87,7 @@ class DeviceProfileSpec:
     catalog_revision: str = ""
     firmware_verified_min: str | None = None
     firmware_verified_max: str | None = None
+    verification: VerificationSpec = VerificationSpec()
 
     @property
     def register_names(self) -> tuple[str, ...]:
@@ -81,6 +108,7 @@ class DeviceProfileSpec:
             "catalog_revision": self.catalog_revision,
             "firmware_verified_min": self.firmware_verified_min,
             "firmware_verified_max": self.firmware_verified_max,
+            "verification": self.verification.to_dict(),
             "blocks": [
                 {
                     "address": block.address,
