@@ -51,13 +51,27 @@ it has no runtime service hooks. PDF parsing support is optional and loaded only
 7. Parse **anchored vendor table rows** instead of treating every `0xNNNN` mention as a register.
 8. Track major address spaces/sections such as runtime RAM, EEPROM/configuration, coils/control,
    logged data, examples, reserved rows, and alternate float encodings.
-9. Compare runtime rows with named register **word spans** and declared raw read blocks.
+9. Compare runtime rows with named register **word spans**, source-backed reserved spans, and declared raw read blocks.
 10. Emit deterministic `report.json` and `report.md` without modifying application code.
 11. A developer reviews actionable conflicts separately from optional coverage candidates.
 12. Any accepted catalog/source change still requires tests and a `catalog-proposals/*.json`
     provenance record.
 
 This intentionally favors false negatives over turning noisy PDF extraction into controller behavior.
+
+## Named registers are not the only valid catalog coverage
+
+The runtime catalog has first-class concepts for both semantic fields and manufacturer-reserved words:
+
+- `RegisterSpec` describes a named semantic field;
+- `ReservedRegisterRange` describes one or more readable words that Morningstar explicitly marks reserved;
+- `RegisterBlock` describes the broader read-only range used for safe polling/raw evidence.
+
+A vendor row marked **reserved** should not be converted into an invented semantic metric just because a broad Modbus read returns a value there. The correct reviewed outcome may be a `ReservedRegisterRange` declaration.
+
+This distinction is particularly visible in the TriStar MPPT v11 map, where the reviewed catalog now explicitly classifies `0x0005-0x0017`, `0x002D`, `0x003F`, `0x004A`, and `0xE0C4-0xE0CB` as reserved while continuing to preserve the raw words when the enclosing blocks are read.
+
+The maintenance scanner remains advisory: an extracted `reserved` observation is evidence for review, not permission for automation to edit the family definition.
 
 ## Why the scanner distinguishes conflicts from coverage candidates
 
@@ -73,13 +87,11 @@ discrepancy.
 The scanner therefore reports two classes:
 
 - **Actionable discrepancies** — a source observation directly conflicts with something the runtime
-  catalog already declares, such as a vendor row becoming reserved at a declared register address.
-- **Coverage candidates** — valid runtime table rows that are not yet represented by a named field
-  or active read block. These are opportunities for future expansion, not errors.
+  catalog already declares, such as a vendor row becoming reserved at a declared semantic register address.
+- **Coverage candidates** — valid runtime table rows that are not yet represented by a named field,
+  declared reserved span, or active read block. These are opportunities for future expansion, not errors.
 
-Addresses that fall inside an existing multi-word field or raw read block are considered covered.
-Rows from EEPROM/configuration, coils/control, log storage, examples, reserved unused locations, and
-redundant alternate encodings are not treated as runtime coverage discrepancies.
+Addresses that fall inside an existing multi-word field, documented reserved range, or raw read block are considered covered for the appropriate purpose. Rows from EEPROM/configuration, coils/control, log storage, examples, reserved unused locations, and redundant alternate encodings are not treated as missing semantic runtime fields.
 
 `report.json` keeps `proposed_changes` for actionable conflicts and adds
 `coverage_candidates`, `coverage_candidate_count`, and `ignored_observations`.
@@ -156,16 +168,18 @@ A catalog/source update needs a JSON record such as:
   "affected_profiles": ["tristar_mppt"],
   "changes": [
     {
-      "address": "0x0018",
-      "change": "verified decoder and unit against updated vendor table"
+      "range": "0x0005-0x0017",
+      "change": "classify vendor-documented runtime words as reserved rather than semantic telemetry"
     }
   ],
-  "tests": ["tests/test_catalog.py::test_tristar_updated_register"]
+  "tests": ["tests/test_catalog.py::test_tristar_reserved_ranges"]
 }
 ```
 
 The source hash binds code review to the exact artifact inspected. The generated maintenance report
 alone is not sufficient evidence because PDF extraction is heuristic.
+
+A proposal may cover semantic register decoding, a reserved-range classification, firmware gates, source-index changes, or other vendor-derived catalog truth. The important requirement is that the reviewed change is bound to the exact official artifact and accompanied by tests.
 
 ## GitHub Actions
 
