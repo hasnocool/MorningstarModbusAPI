@@ -34,6 +34,13 @@ def bcd_integer(value: int) -> int:
     return int("".join(digits))
 
 
+def byte_pair_version(value: int) -> str:
+    """Decode a major.minor revision stored in the high/low bytes of one word."""
+
+    value &= 0xFFFF
+    return f"{(value >> 8) & 0xFF}.{value & 0xFF}"
+
+
 def ascii_low_high(words: tuple[int, ...]) -> str:
     payload = bytearray()
     for word in words:
@@ -76,6 +83,8 @@ def decode_value(decoder: str, words: tuple[int, ...], context: Mapping[int, int
         return float16(raw)
     if decoder == "bcd":
         return bcd_integer(raw)
+    if decoder == "byte_pair_version":
+        return byte_pair_version(raw)
     if decoder == "u32":
         if len(words) != 2:
             raise ValueError("u32 decoder requires two words")
