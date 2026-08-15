@@ -80,6 +80,11 @@ def decode_value(decoder: str, words: tuple[int, ...], context: Mapping[int, int
         if len(words) != 2:
             raise ValueError("u32 decoder requires two words")
         return ((words[0] & 0xFFFF) << 16) | (words[1] & 0xFFFF)
+    if decoder.startswith("u32_factor:"):
+        if len(words) != 2:
+            raise ValueError("u32_factor decoder requires two words")
+        combined = ((words[0] & 0xFFFF) << 16) | (words[1] & 0xFFFF)
+        return combined * float(decoder.split(":", 1)[1])
     if decoder == "ascii_lo_hi":
         return ascii_low_high(words)
     if decoder == "ascii_hi_lo":
@@ -109,6 +114,8 @@ def decode_value(decoder: str, words: tuple[int, ...], context: Mapping[int, int
         voltage = fixed_point_scale(_context_word(context, 0x0000), _context_word(context, 0x0001))
         current = fixed_point_scale(_context_word(context, 0x0002), _context_word(context, 0x0003))
         return (raw & 0xFFFF) * voltage * current / 131072.0
+    if decoder == "tristar_rts_temp":
+        return "DISCONNECTED" if (raw & 0xFFFF) == 0x0080 else signed_16(raw)
     if decoder.startswith("ts600_"):
         firmware = bcd_integer(_context_word(context, 0x0004))
         if firmware >= 19:

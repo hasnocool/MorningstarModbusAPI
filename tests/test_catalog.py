@@ -5,6 +5,7 @@ import struct
 import pytest
 
 from morningstar_modbus.catalog import catalog_detail, catalog_summary, detect_profile
+from morningstar_modbus.catalog.families.tristar_mppt import TRISTAR_MPPT
 from morningstar_modbus.catalog.profile import CatalogProfile
 from morningstar_modbus.catalog.registry import PROFILES, select_spec
 from morningstar_modbus.catalog.scaling import float16
@@ -55,6 +56,27 @@ def test_every_named_register_is_covered_by_a_read_block() -> None:
                 and register_end <= block.address + block.count
                 for block in spec.blocks
             ), f"{spec.name}.{register.name} is outside its declared read blocks"
+
+
+def test_tristar_v11_runtime_map_names_every_documented_readonly_register() -> None:
+    covered_addresses = {
+        address
+        for register in TRISTAR_MPPT.registers
+        if register.address < 0x0050
+        for address in range(register.address, register.address + register.words)
+    }
+    documented_runtime_addresses = (
+        set(range(0x0018, 0x002D))
+        | set(range(0x002E, 0x003F))
+        | set(range(0x0040, 0x004A))
+        | set(range(0x004B, 0x0050))
+    )
+
+    assert documented_runtime_addresses <= covered_addresses
+    assert 0x002D not in covered_addresses
+    assert 0x003F not in covered_addresses
+    assert 0x004A not in covered_addresses
+    assert all(register.description.strip() for register in TRISTAR_MPPT.registers)
 
 
 def test_float16_decoder_matches_ieee_binary16() -> None:

@@ -14,6 +14,37 @@ TRISTAR_MPPT_CHARGE_STATES = (
     (9, "SLAVE"),
 )
 
+TRISTAR_MPPT_LED_STATES = (
+    (0, "LED_START"),
+    (1, "LED_START2"),
+    (2, "LED_BRANCH"),
+    (3, "FAST_GREEN_BLINK"),
+    (4, "SLOW_GREEN_BLINK"),
+    (5, "GREEN_BLINK_1HZ"),
+    (6, "GREEN"),
+    (7, "UNDEFINED_7"),
+    (8, "YELLOW"),
+    (9, "UNDEFINED_9"),
+    (10, "BLINK_RED"),
+    (11, "RED"),
+    (12, "RED_YELLOW_GREEN_ERROR"),
+    (13, "RED_OR_YELLOW_GREEN_ERROR"),
+    (14, "RED_OR_GREEN_YELLOW_ERROR"),
+    (15, "RED_YELLOW_ERROR_HIGH_TEMP_DISCONNECT"),
+    (16, "RED_GREEN_ERROR_HIGH_VOLTAGE_DISCONNECT"),
+    (17, "RED_OR_YELLOW_GREEN_OR_YELLOW_ERROR"),
+    (18, "GREEN_YELLOW_RED_ERROR"),
+    (19, "GREEN_YELLOW_RED_ERROR_X2"),
+)
+
+TRISTAR_MPPT_DAILY_FLAGS = (
+    (0, "reset_detected"),
+    (1, "equalize_triggered"),
+    (2, "entered_float"),
+    (3, "alarm_occurred"),
+    (4, "fault_occurred"),
+)
+
 PWM_CHARGE_STATES = (
     (0, "START"),
     (1, "NIGHT_CHECK"),

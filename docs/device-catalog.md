@@ -56,6 +56,10 @@ Each profile separates ordinary runtime blocks from stable/optional metadata blo
 - Firmware gates are applied before building the effective register map.
 - The runtime remains read-only even when vendor specifications document configurable fields.
 
+Raw word observations use transport-oriented names such as `holding_0x0026` for evidence/capture compatibility. They are not the preferred operator-facing register identity. When the catalog documents an address, the corresponding semantic `RegisterSpec` is authoritative for decoded telemetry, unit, category, and description. Frontends should prefer the semantic row and only surface a raw transport name when an address is genuinely unmapped or when raw evidence is explicitly requested.
+
+For the TriStar MPPT V11 runtime block, every documented read-only register from `0x0018` through `0x004F` now has semantic coverage except addresses explicitly marked reserved by Morningstar (`0x002D`, `0x003F`, and `0x004A`). Multi-word counters and alarm fields are represented as single semantic values spanning their documented words.
+
 ## Firmware-aware catalog declarations
 
 `RegisterBlock` and `RegisterSpec` can declare `since_firmware` and `until_firmware`. `DeviceProfileSpec` can declare catalog revision and a verified firmware range.
@@ -88,7 +92,7 @@ At present, TriStar MPPT is the only profile with explicit non-default verificat
 | --- | --- | --- | --- |
 | `genstar_mppt` | GenStar MPPT | Float16 telemetry, charge/load states, SOC, alarms/faults, power | firmware, serial, TCP defaults, ReadyRail context |
 | `readyedge` | ReadyEdge RE-1 | DC inputs, temperatures, SOC, system faults/alarms | firmware, serial, TCP/bridge defaults |
-| `tristar_mppt` | TriStar MPPT 150V | voltage/current/power, temperatures, charge state, faults, alarms | firmware, serial, model flag, hardware, TCP defaults |
+| `tristar_mppt` | TriStar MPPT 150V | complete V11 read-only runtime telemetry/status/counters/logger fields through `0x004F`, including MPPT sweep and daily energy/state | firmware, serial, model flag, hardware, TCP defaults |
 | `tristar_mppt_600v` | TriStar MPPT 600V | firmware-aware Float16/legacy values, state/fault core | firmware, FPGA, system multiplier, TCP defaults |
 | `tristar_pwm` | TriStar PWM | voltage/current/temp, mode/state, duty, alarms/faults | serial, hardware/model flag |
 | `prostar_mppt` | ProStar MPPT | Float16 telemetry, charge/load states, alarms/faults, power | firmware/system voltage, Modbus/MeterBus IDs |
