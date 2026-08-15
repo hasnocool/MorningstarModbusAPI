@@ -6,16 +6,20 @@ import ipaddress
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal, TypeAlias
+
+PollInterval: TypeAlias = float | Literal["auto"]
 
 
 @dataclass(slots=True)
 class DatabaseConfig:
     path: str = "./morningstar.db"
+    telemetry_write_interval_seconds: float = 1.0
 
 
 @dataclass(slots=True)
 class WatchConfig:
-    poll_interval_seconds: float = 5.0
+    poll_interval_seconds: PollInterval = 5.0
     discovery_interval_seconds: float = 30.0
     request_timeout_seconds: float = 1.5
     unit_ids: list[int] = field(default_factory=lambda: [1])
@@ -35,6 +39,7 @@ class PollBenchmarkConfig:
     max_request_failure_rate: float = 0.02
     max_bus_utilization_percent: float = 70.0
     minimum_interval_seconds: float = 0.25
+    auto_fallback_interval_seconds: float = 5.0
 
 
 @dataclass(slots=True)
@@ -85,7 +90,9 @@ class AppConfig:
 
 def load_config(path: str | None) -> AppConfig:
     if path is None:
-        return AppConfig()
+        config = AppConfig()
+        _validate(config)
+        return config
     payload = tomllib.loads(Path(path).read_text(encoding="utf-8"))
     config = AppConfig(
         database=DatabaseConfig(**payload.get("database", {})),
@@ -100,9 +107,26 @@ def load_config(path: str | None) -> AppConfig:
     return config
 
 
+def _normalize_poll_interval(value: object) -> PollInterval:
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized != "auto":
+            raise ValueError('watch.poll_interval_seconds must be a positive number or "auto"')
+        return "auto"
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError('watch.poll_interval_seconds must be a positive number or "auto"')
+    interval = float(value)
+    if interval <= 0:
+        raise ValueError("watch.poll_interval_seconds must be positive")
+    return interval
+
+
 def _validate(config: AppConfig) -> None:
-    if config.watch.poll_interval_seconds <= 0 or config.watch.discovery_interval_seconds <= 0:
-        raise ValueError("watch intervals must be positive")
+    config.watch.poll_interval_seconds = _normalize_poll_interval(config.watch.poll_interval_seconds)
+    if config.watch.discovery_interval_seconds <= 0:
+        raise ValueError("watch discovery interval must be positive")
+    if config.database.telemetry_write_interval_seconds < 1.0:
+        raise ValueError("database.telemetry_write_interval_seconds must be >= 1.0")
     if not all(1 <= unit <= 247 for unit in config.watch.unit_ids):
         raise ValueError("unit_ids must be within 1..247")
     if not 1 <= config.watch.max_tcp_concurrency <= 256:
@@ -139,6 +163,12 @@ def _validate(config: AppConfig) -> None:
         raise ValueError("poll benchmark interval is below minimum_interval_seconds")
     if benchmark.samples_per_interval < 3:
         raise ValueError("poll_benchmark.samples_per_interval must be >= 3")
+    if benchmark.auto_fallback_interval_seconds <= 0:
+        raise ValueError("poll_benchmark.auto_fallback_interval_seconds must be positive")
+    if benchmark.auto_fallback_interval_seconds < max(benchmark.intervals_seconds):
+        raise ValueError(
+            "poll_benchmark.auto_fallback_interval_seconds must be >= the slowest benchmark interval"
+        )
     for name, value in (
         ("min_success_rate", benchmark.min_success_rate),
         ("max_p95_interval_ratio", benchmark.max_p95_interval_ratio),
