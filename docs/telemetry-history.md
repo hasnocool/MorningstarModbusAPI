@@ -1,6 +1,8 @@
 # Telemetry history and time-series API
 
-MorningstarModbusAPI stores every successful poll as an immutable `poll_samples` row and every decoded/raw register observation for that poll in `register_values`. History APIs query that existing data directly; they do not replace raw observations with lossy rollups.
+MorningstarModbusAPI stores each **persisted telemetry snapshot** as an immutable `poll_samples` row and stores every decoded/raw register observation belonging to that snapshot in `register_values`. History APIs query that existing data directly; they do not replace persisted observations with lossy rollups.
+
+Live Modbus polling and persistent history cadence are intentionally separate. A controller may be read faster than the database is updated. `[database].telemetry_write_interval_seconds` has a minimum value of `1.0`, so regular poll-driven history is persisted no faster than once per second per physical controller even when `[watch].poll_interval_seconds` is sub-second or `"auto"` selects a sub-second stage. Intermediate live polls still drive runtime lifecycle/intelligence and automatic interval evaluation, but do not create extra history rows.
 
 There are two query scopes:
 
@@ -38,7 +40,9 @@ controller scope
         authoritative raw rows
 ```
 
-The watcher appends future polls under the canonical telemetry device ID. Existing pre-canonical histories are not rewritten. Controller-scoped queries join all member device IDs and expose `source_device_id` on raw results so the original storage provenance remains visible.
+The watcher appends persisted future snapshots under the canonical telemetry device ID. Existing pre-canonical histories are not rewritten. Controller-scoped queries join all member device IDs and expose `source_device_id` on raw results so the original storage provenance remains visible.
+
+The persisted rows remain authoritative evidence for historical queries, but they should not be interpreted as proof that no additional in-memory Modbus reads occurred between stored timestamps. See [`polling-performance.md`](polling-performance.md) for polling versus persistence cadence.
 
 See [`controller-scoped-data.md`](controller-scoped-data.md).
 
@@ -188,7 +192,7 @@ Numeric statistics include count, minimum, maximum, average, first, last, delta,
 
 Text/state statistics include count, first/last state, transition count, per-state observation counts, and observed duration.
 
-These are statistics over sampled observations. For example, the numeric `avg` is not automatically a time-weighted physical average.
+These are statistics over sampled persisted observations. For example, the numeric `avg` is not automatically a time-weighted physical average.
 
 ## History summary
 
@@ -294,6 +298,8 @@ Controller-retained `charge_wh` values, where supported and correctly decoded fr
 
 ## Retention policy
 
-This layer does not delete or irreversibly downsample historical rows. Raw telemetry remains the source of truth. Optional retention, archival, materialized rollups, and pruning can be added later once real database growth is measured.
+This layer does not delete or irreversibly downsample persisted historical rows. Persisted raw telemetry remains the source of truth for historical queries. The independent poll/persistence cadence prevents unnecessary sub-second history growth without rewriting or pruning rows after they are committed.
+
+Optional archival, materialized rollups, and pruning can be added later once real database growth is measured.
 
 For the complete HTTP route/query reference, see [`api.md`](api.md).
