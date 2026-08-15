@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import re
-from datetime import UTC, datetime, time as datetime_time, timedelta, tzinfo
+from datetime import UTC, datetime, timedelta, tzinfo
+from datetime import time as datetime_time
 from html.parser import HTMLParser
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -12,10 +13,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from morningstar_modbus.config import HistoryBackfillConfig
 from morningstar_modbus.controller_history_storage import ControllerHistoryRepository
 from morningstar_modbus.controller_history_types import (
+    LIVEVIEW_SOURCE,
     BackfillResult,
     ControllerDailyRecord,
     ControllerHistoryError,
-    LIVEVIEW_SOURCE,
 )
 from morningstar_modbus.models import DiscoveredDevice
 
@@ -233,12 +234,12 @@ async def _fetch_http_text(
     *,
     port: int,
     path: str,
-    timeout: float,
+    timeout_seconds: float,
     max_bytes: int,
 ) -> str:
     writer: asyncio.StreamWriter | None = None
     try:
-        async with asyncio.timeout(timeout):
+        async with asyncio.timeout(timeout_seconds):
             reader, writer = await asyncio.open_connection(host, port)
             request = (
                 f"GET {path} HTTP/1.0\r\n"
@@ -315,7 +316,7 @@ class ControllerHistoryBackfiller:
                 device.endpoint.target,
                 port=self.config.http_port,
                 path=self.config.http_path,
-                timeout=self.config.timeout_seconds,
+                timeout_seconds=self.config.timeout_seconds,
                 max_bytes=self.config.max_response_bytes,
             )
             records = parse_liveview_datalog(
