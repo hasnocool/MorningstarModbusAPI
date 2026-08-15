@@ -9,6 +9,7 @@
 | [`controller-history-backfill.md`](controller-history-backfill.md) | Provenance-aware recovery of controller-retained daily history after startup/reconnect without fabricating raw samples |
 | [`polling-performance.md`](polling-performance.md) | Full-profile polling instrumentation, persisted performance metrics, RTU utilization estimates, and safe interval benchmarking |
 | [`canonical-device-identity.md`](canonical-device-identity.md) | Persistent physical-controller identity, canonical telemetry IDs, connection history, endpoint reconciliation, and migration behavior |
+| [`controller-scoped-data.md`](controller-scoped-data.md) | Immutable controller UIDs, identity aliases, unified multi-device history, source provenance, and controller-first API routes |
 | [`device-catalog.md`](device-catalog.md) | Declarative Morningstar product profiles, firmware gates, verification registry, coverage, and extension rules |
 | [`device-intelligence.md`](device-intelligence.md) | Runtime identity resolution, metadata, confidence, capabilities, validation, and effective firmware register maps |
 | [`catalog-maintenance.md`](catalog-maintenance.md) | Official-source download/validation, conservative PDF extraction, advisory diffs, provenance, and CI review gates |
@@ -35,14 +36,17 @@ runtime intelligence   polling performance rows
 persistent controller identity + connection inventory
         |
         v
+immutable controller UID + identity aliases
+        |
+        v
 watcher + in-memory lifecycle/backoff
         |
         v
 SQLite/WAL persistence
         |
-        +----> raw/latest API
+        +----> raw endpoint/device APIs
         |
-        +----> history query/aggregation/export
+        +----> controller-scoped history/query/aggregation/export
         |
         +----> polling performance/history API
         |
@@ -60,7 +64,7 @@ catalog declarations ---- official source index
 verification registry        advisory report
 ```
 
-Capture/replay is part of the runtime verification path, while vendor-document maintenance remains a separate sidecar. Verification evidence is deliberately kept outside vendor-derived family modules. The raw history layer queries existing immutable poll/register rows and does not replace them with lossy rollups. Controller-retained daily records are persisted separately with explicit source/retrieval provenance. Polling instrumentation observes the same read-only Modbus exchanges used by normal profile polling and stores performance separately from controller telemetry. Persistent controller identity prevents future IP/USB locator changes from creating another telemetry ID while retaining pre-migration member IDs as historical aliases.
+Capture/replay is part of the runtime verification path, while vendor-document maintenance remains a separate sidecar. Verification evidence is deliberately kept outside vendor-derived family modules. The raw history layer queries existing immutable poll/register rows and does not replace them with lossy rollups. Controller-retained daily records are persisted separately with explicit source/retrieval provenance. Polling instrumentation observes the same read-only Modbus exchanges used by normal profile polling and stores performance separately from controller telemetry. Persistent controller identity prevents future IP/USB locator changes from creating another telemetry ID while retaining pre-migration member IDs as historical aliases. Immutable controller UIDs now remain stable even when identity evidence is promoted, and controller-scoped reads combine all historical member IDs while preserving `source_device_id` on raw observations.
 
 ## Evidence model
 
@@ -77,4 +81,4 @@ Controller identity/reconciliation confidence is separate from catalog verificat
 
 ## Version note
 
-The latest published GitHub release is `v0.3.0`. The current development line includes hardware verification/capture/replay, lifecycle changes, richer time-series query/export, controller-retained daily-history backfill, polling-performance instrumentation, physical-controller inventory, and persistent controller identity work added after that release, so these documents describe current development rather than only the latest tagged release.
+The latest published GitHub release is `v0.3.0`. The current development line includes hardware verification/capture/replay, lifecycle changes, richer time-series query/export, controller-retained daily-history backfill, polling-performance instrumentation, physical-controller inventory, persistent controller identity, immutable controller UIDs, and controller-scoped history work added after that release, so these documents describe current development rather than only the latest tagged release.

@@ -9,7 +9,7 @@ import time
 from morningstar_modbus.catalog import CatalogProfile, get_profile
 from morningstar_modbus.config import AppConfig
 from morningstar_modbus.controller_history import ControllerHistoryBackfiller
-from morningstar_modbus.controller_inventory import ControllerInventoryRepository
+from morningstar_modbus.controller_scope import ControllerRegistry
 from morningstar_modbus.discovery import discover
 from morningstar_modbus.intelligence import DeviceIntelligence, refresh_intelligence
 from morningstar_modbus.lifecycle import DeviceLifecycle
@@ -27,7 +27,7 @@ class Watcher:
         self.config = config
         self.store = store
         self.performance_store = PollingPerformanceStore(store.path)
-        self.controller_inventory = ControllerInventoryRepository(store.path)
+        self.controller_inventory = ControllerRegistry(store.path)
         self._devices: dict[str, DiscoveredDevice] = {}
         self._device_ids: dict[str, str] = {}
         self._controller_ids: dict[str, str] = {}

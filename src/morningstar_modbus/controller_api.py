@@ -1,44 +1,34 @@
-"""FastAPI application exposing stored telemetry and Morningstar device intelligence."""
+"""FastAPI routes for immutable physical-controller scoped data."""
 
 from __future__ import annotations
 
 import csv
 import io
 import json
-import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from morningstar_modbus import __version__
-from morningstar_modbus.catalog import catalog_detail, catalog_summary
-from morningstar_modbus.controller_api import attach_controller_routes
-from morningstar_modbus.controller_data import ControllerDataRepository
-from morningstar_modbus.controller_history import ControllerHistoryRepository
+from morningstar_modbus.controller_data import ControllerDataRepository, ControllerNotFoundError
 from morningstar_modbus.history import (
     MAX_JSON_POINTS,
     HistoryQueryError,
     HistoryQueryTooLarge,
-    build_history_response,
     normalize_names,
     normalize_time_range,
     validate_order,
     validate_resolution,
 )
-from morningstar_modbus.intelligence import effective_register_map
-from morningstar_modbus.polling_storage import PollingPerformanceStore
-from morningstar_modbus.storage import TelemetryStore
-
-LOGGER = logging.getLogger(__name__)
 
 
 def _history_error(exc: HistoryQueryError) -> HTTPException:
-    status_code = 413 if isinstance(exc, HistoryQueryTooLarge) else 400
-    return HTTPException(status_code=status_code, detail=str(exc))
+    return HTTPException(
+        status_code=413 if isinstance(exc, HistoryQueryTooLarge) else 400,
+        detail=str(exc),
+    )
 
 
 def _range_and_order(
@@ -74,134 +64,131 @@ def _polling_mode(value: str) -> str | None:
     return normalized
 
 
-def create_app(store: TelemetryStore) -> FastAPI:
-    controller_history = ControllerHistoryRepository(store.path)
-    controller_data = ControllerDataRepository(store.path)
-    performance_store = PollingPerformanceStore(store.path)
+async def _controller_call(awaitable: Any) -> Any:
+    try:
+        return await awaitable
+    except ControllerNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="controller not found") from exc
 
-    @asynccontextmanager
-    async def lifespan(_app: FastAPI):
-        await store.initialize()
-        await controller_history.initialize()
-        await controller_data.initialize()
-        await performance_store.initialize()
-        yield
 
-    app = FastAPI(
-        title="Morningstar Modbus API",
-        version=__version__,
-        description="Read-only API for persisted Morningstar Modbus telemetry and device intelligence.",
-        lifespan=lifespan,
-    )
-
-    @app.get("/health")
-    async def health() -> dict[str, object]:
-        return {"status": "ok", "version": __version__}
-
-    @app.get("/v1/catalog")
-    async def catalog() -> list[dict[str, object]]:
-        return catalog_summary()
-
-    @app.get("/v1/catalog/{profile_name}")
-    async def catalog_profile(profile_name: str) -> dict[str, object]:
-        profile = catalog_detail(profile_name)
-        if profile is None:
-            raise HTTPException(status_code=404, detail="catalog profile not found")
-        return profile
-
-    @app.get("/v1/controllers")
-    async def controllers() -> list[dict[str, object]]:
-        """Return physical controllers with immutable UIDs and connection history."""
-
-        return await controller_data.list_controllers()
-
-    @app.get("/v1/devices")
-    async def devices() -> list[dict[str, object]]:
-        """Return raw persisted endpoint records for backward compatibility."""
-
-        return await store.list_devices()
-
-    @app.get("/v1/devices/latest")
-    async def latest(device_id: str = Query(...)) -> dict[str, object]:
-        LOGGER.info("looking up latest telemetry device=%r", device_id)
-        record = await store.latest(device_id)
-        if record is None:
-            raise HTTPException(status_code=404, detail="no samples for device")
-        return record
-
-    @app.get("/v1/devices/intelligence")
-    async def device_intelligence(device_id: str = Query(...)) -> dict[str, object]:
-        record = await store.get_device_intelligence(device_id)
-        if record is None:
-            raise HTTPException(status_code=404, detail="device intelligence not found")
-        return record
-
-    @app.get("/v1/devices/register-map")
-    async def device_register_map(device_id: str = Query(...)) -> dict[str, object]:
-        intelligence = await store.get_device_intelligence(device_id)
-        if intelligence is None:
-            raise HTTPException(status_code=404, detail="device intelligence not found")
-        register_map = effective_register_map(
-            str(intelligence["profile"]),
-            intelligence.get("firmware", ""),
+def _build_history_response(
+    *,
+    scope: dict[str, object],
+    start: str | None,
+    end: str | None,
+    resolution: str,
+    rows: list[dict[str, Any]],
+) -> dict[str, object]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        name = str(row["register_name"])
+        series = grouped.setdefault(
+            name,
+            {
+                "name": name,
+                "unit": row.get("unit"),
+                "kind": row.get("kind", "unknown"),
+                "points": [],
+            },
         )
-        if register_map is None:
-            raise HTTPException(status_code=404, detail="catalog profile not found")
-        return register_map
+        kind = str(row.get("kind", "unknown"))
+        if series["kind"] != kind:
+            series["kind"] = "mixed"
+        if series["unit"] is None and row.get("unit") is not None:
+            series["unit"] = row["unit"]
 
-    @app.get("/v1/devices/profile/validation")
-    async def device_profile_validation(device_id: str = Query(...)) -> dict[str, object]:
-        intelligence = await store.get_device_intelligence(device_id)
-        if intelligence is None:
-            raise HTTPException(status_code=404, detail="device intelligence not found")
-        return {
-            "profile": intelligence["profile"],
-            "confidence": intelligence["confidence"],
-            "status": intelligence["intelligence_status"],
-            "evidence": intelligence["evidence"],
-            "warnings": intelligence["warnings"],
-        }
+        if resolution == "raw":
+            point = {
+                "observed_at": row["observed_at"],
+                "source_device_id": row["source_device_id"],
+                "address": row["address"],
+                "function": row["function"],
+                "raw": row["raw"],
+                "value": row["value"],
+            }
+        elif kind == "numeric":
+            point = {
+                "bucket_start": row["bucket_start"],
+                "count": row["count"],
+                "min": row["min_value"],
+                "max": row["max_value"],
+                "avg": row["avg_value"],
+                "first": row["first_value"],
+                "last": row["last_value"],
+            }
+        else:
+            point = {
+                "bucket_start": row["bucket_start"],
+                "samples": row["count"],
+                "first": row["first_value"],
+                "last": row["last_value"],
+                "transitions": row["transitions"],
+            }
+        series["points"].append(point)
 
-    @app.get("/v1/devices/samples")
-    async def samples(
-        device_id: str = Query(...),
+    return {
+        **scope,
+        "from": start,
+        "to": end,
+        "resolution": resolution,
+        "series": list(grouped.values()),
+    }
+
+
+def attach_controller_routes(app: FastAPI, data: ControllerDataRepository) -> None:
+    """Attach controller-first API routes while leaving legacy device routes intact."""
+
+    @app.get("/v1/controllers/{controller_uid}/latest")
+    async def controller_latest(controller_uid: str) -> dict[str, object]:
+        record = await _controller_call(data.latest(controller_uid))
+        if record is None:
+            raise HTTPException(status_code=404, detail="no samples for controller")
+        return record
+
+    @app.get("/v1/controllers/{controller_uid}/samples")
+    async def controller_samples(
+        controller_uid: str,
         limit: int = Query(100, ge=1, le=5000),
         from_: str | None = Query(None, alias="from"),
         to: str | None = Query(None),
         order: str = Query("desc"),
     ) -> list[dict[str, object]]:
         start, end, normalized_order = _range_and_order(from_, to, order)
-        return await store.samples(
-            device_id,
-            limit=limit,
-            start=start,
-            end=end,
-            order=normalized_order,
+        return await _controller_call(
+            data.samples(
+                controller_uid,
+                limit=limit,
+                start=start,
+                end=end,
+                order=normalized_order,
+            )
         )
 
-    @app.get("/v1/devices/registers/{name}/history")
-    async def register_history(
+    @app.get("/v1/controllers/{controller_uid}/registers/{name}/history")
+    async def controller_register_history(
+        controller_uid: str,
         name: str,
-        device_id: str = Query(...),
         limit: int = Query(1000, ge=1, le=10000),
         from_: str | None = Query(None, alias="from"),
         to: str | None = Query(None),
         order: str = Query("desc"),
     ) -> list[dict[str, object]]:
         start, end, normalized_order = _range_and_order(from_, to, order)
-        return await store.register_history(
-            device_id,
-            name,
-            limit=limit,
-            start=start,
-            end=end,
-            order=normalized_order,
+        return await _controller_call(
+            data.register_history(
+                controller_uid,
+                name,
+                limit=limit,
+                start=start,
+                end=end,
+                order=normalized_order,
+            )
         )
 
-    @app.get("/v1/devices/registers/history")
-    async def registers_history(
+    @app.get("/v1/controllers/{controller_uid}/registers/history")
+    async def controller_registers_history(
+        controller_uid: str,
         name: Annotated[list[str], Query()],
-        device_id: str = Query(...),
         from_: str | None = Query(None, alias="from"),
         to: str | None = Query(None),
         resolution: str = Query("raw"),
@@ -212,8 +199,8 @@ def create_app(store: TelemetryStore) -> FastAPI:
         try:
             names = normalize_names(name)
             normalized_resolution, bucket_seconds = validate_resolution(resolution)
-            rows = await store.multi_register_history(
-                device_id,
+            scope, rows = await data.multi_register_history(
+                controller_uid,
                 names,
                 start=start,
                 end=end,
@@ -221,61 +208,80 @@ def create_app(store: TelemetryStore) -> FastAPI:
                 bucket_seconds=bucket_seconds,
                 max_points=max_points,
             )
+        except ControllerNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="controller not found") from exc
         except HistoryQueryError as exc:
             raise _history_error(exc) from exc
-        return build_history_response(
-            device_id=device_id,
+        return _build_history_response(
+            scope=scope.to_dict(),
             start=start,
             end=end,
             resolution=normalized_resolution,
             rows=rows,
         )
 
-    @app.get("/v1/devices/registers/stats")
-    async def register_stats(
+    @app.get("/v1/controllers/{controller_uid}/registers/stats")
+    async def controller_register_stats(
+        controller_uid: str,
         name: Annotated[list[str], Query()],
-        device_id: str = Query(...),
         from_: str | None = Query(None, alias="from"),
         to: str | None = Query(None),
     ) -> dict[str, object]:
         start, end, _ = _range_and_order(from_, to, "asc")
         try:
             names = normalize_names(name)
+            scope, rows = await data.register_stats(
+                controller_uid,
+                names,
+                start=start,
+                end=end,
+            )
+        except ControllerNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="controller not found") from exc
         except HistoryQueryError as exc:
             raise _history_error(exc) from exc
         return {
-            "device_id": device_id,
+            **scope.to_dict(),
             "from": start,
             "to": end,
-            "registers": await store.register_stats(device_id, names, start=start, end=end),
+            "registers": rows,
         }
 
-    @app.get("/v1/devices/history/summary")
-    async def history_summary(
-        device_id: str = Query(...),
+    @app.get("/v1/controllers/{controller_uid}/history/summary")
+    async def controller_history_summary(
+        controller_uid: str,
         from_: str | None = Query(None, alias="from"),
         to: str | None = Query(None),
     ) -> dict[str, object]:
         start, end, _ = _range_and_order(from_, to, "asc")
-        return await store.history_summary(device_id, start=start, end=end)
+        return await _controller_call(
+            data.history_summary(controller_uid, start=start, end=end)
+        )
 
-    @app.get("/v1/devices/history/controller-daily")
+    @app.get("/v1/controllers/{controller_uid}/history/controller-daily")
     async def controller_daily_history(
-        device_id: str = Query(...),
+        controller_uid: str,
         from_: str | None = Query(None, alias="from"),
         to: str | None = Query(None),
         limit: int = Query(200, ge=1, le=500),
     ) -> list[dict[str, object]]:
         start, end = _daily_range(from_, to)
-        return await controller_history.list(device_id, start=start, end=end, limit=limit)
+        return await _controller_call(
+            data.controller_daily_history(
+                controller_uid,
+                start=start,
+                end=end,
+                limit=limit,
+            )
+        )
 
-    @app.get("/v1/devices/history/controller-daily/summary")
-    async def controller_daily_history_summary(device_id: str = Query(...)) -> dict[str, object]:
-        return await controller_history.summary(device_id)
+    @app.get("/v1/controllers/{controller_uid}/history/controller-daily/summary")
+    async def controller_daily_history_summary(controller_uid: str) -> dict[str, object]:
+        return await _controller_call(data.controller_daily_summary(controller_uid))
 
-    @app.get("/v1/devices/history/export")
-    async def history_export(
-        device_id: str = Query(...),
+    @app.get("/v1/controllers/{controller_uid}/history/export")
+    async def controller_history_export(
+        controller_uid: str,
         name: Annotated[list[str] | None, Query()] = None,
         from_: str | None = Query(None, alias="from"),
         to: str | None = Query(None),
@@ -287,14 +293,16 @@ def create_app(store: TelemetryStore) -> FastAPI:
         try:
             names = normalize_names(name) if name else ()
             normalized_resolution, bucket_seconds = validate_resolution(resolution)
+            await data.scope(controller_uid)
+        except ControllerNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="controller not found") from exc
         except HistoryQueryError as exc:
             raise _history_error(exc) from exc
         export_format = format_.strip().lower()
         if export_format not in {"csv", "jsonl"}:
             raise HTTPException(status_code=400, detail="format must be csv or jsonl")
-
-        rows = store.iter_history_export(
-            device_id,
+        rows = data.iter_history_export(
+            controller_uid,
             names,
             start=start,
             end=end,
@@ -312,42 +320,43 @@ def create_app(store: TelemetryStore) -> FastAPI:
         return StreamingResponse(
             stream,
             media_type=media_type,
-            headers={"Content-Disposition": f'attachment; filename="telemetry-history.{suffix}"'},
+            headers={"Content-Disposition": f'attachment; filename="controller-history.{suffix}"'},
         )
 
-    @app.get("/v1/devices/polling/performance")
-    async def polling_performance(
-        device_id: str = Query(...),
+    @app.get("/v1/controllers/{controller_uid}/polling/performance")
+    async def controller_polling_performance(
+        controller_uid: str,
         window: int = Query(300, ge=3, le=5000),
         mode: str = Query("watch"),
     ) -> dict[str, object]:
-        return await performance_store.summary(
-            device_id,
-            window=window,
-            mode=_polling_mode(mode),
+        return await _controller_call(
+            data.polling_summary(
+                controller_uid,
+                window=window,
+                mode=_polling_mode(mode),
+            )
         )
 
-    @app.get("/v1/devices/polling/history")
-    async def polling_history(
-        device_id: str = Query(...),
+    @app.get("/v1/controllers/{controller_uid}/polling/history")
+    async def controller_polling_history(
+        controller_uid: str,
         limit: int = Query(300, ge=1, le=5000),
         mode: str = Query("watch"),
     ) -> list[dict[str, object]]:
-        return await performance_store.recent(
-            device_id,
-            limit=limit,
-            mode=_polling_mode(mode),
+        return await _controller_call(
+            data.polling_history(
+                controller_uid,
+                limit=limit,
+                mode=_polling_mode(mode),
+            )
         )
 
-    @app.get("/v1/devices/{device_id:path}")
-    async def device(device_id: str) -> dict[str, object]:
-        record = await store.get_device(device_id)
+    @app.get("/v1/controllers/{controller_uid}")
+    async def controller_detail(controller_uid: str) -> dict[str, object]:
+        record = await data.controller(controller_uid)
         if record is None:
-            raise HTTPException(status_code=404, detail="device not found")
+            raise HTTPException(status_code=404, detail="controller not found")
         return record
-
-    attach_controller_routes(app, controller_data)
-    return app
 
 
 async def _jsonl_stream(rows: AsyncIterator[dict[str, object]]) -> AsyncIterator[str]:
@@ -363,7 +372,8 @@ async def _csv_stream(
     if resolution == "raw":
         fields = [
             "observed_at",
-            "device_id",
+            "controller_uid",
+            "source_device_id",
             "register_name",
             "address",
             "function",
@@ -375,7 +385,7 @@ async def _csv_stream(
     else:
         fields = [
             "bucket_start",
-            "device_id",
+            "controller_uid",
             "register_name",
             "address",
             "function",
@@ -395,7 +405,6 @@ async def _csv_stream(
     yield buffer.getvalue()
     buffer.seek(0)
     buffer.truncate(0)
-
     async for row in rows:
         output = dict(row)
         if "raw" in output:

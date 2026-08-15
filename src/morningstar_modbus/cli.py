@@ -18,6 +18,7 @@ from morningstar_modbus.api import create_app
 from morningstar_modbus.capture import CaptureRecorder, load_capture_manifest, write_capture_bundle
 from morningstar_modbus.catalog import get_profile
 from morningstar_modbus.config import AppConfig, load_config
+from morningstar_modbus.controller_scope import ControllerRegistry
 from morningstar_modbus.discovery import discover
 from morningstar_modbus.intelligence import refresh_intelligence, resolve_device_intelligence
 from morningstar_modbus.intelligence.models import DeviceIntelligence
@@ -377,8 +378,10 @@ async def _benchmark_polling(config: AppConfig, args: argparse.Namespace) -> int
         if not args.no_persist:
             store = TelemetryStore(config.database.path)
             await store.initialize()
+            registry = ControllerRegistry(config.database.path)
+            await registry.initialize()
             device = DiscoveredDevice(endpoint, identification, 0.0, profile.name, intelligence)
-            device_id = await store.upsert_device(device)
+            _controller_uid, device_id = await registry.register_observation(device)
             performance_store = PollingPerformanceStore(config.database.path)
             await performance_store.initialize()
 
