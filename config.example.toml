@@ -4,6 +4,7 @@
 path = "./morningstar.db"
 
 [watch]
+# Conservative default. Use `morningstar-modbus benchmark-polling` before lowering this.
 poll_interval_seconds = 5.0
 discovery_interval_seconds = 30.0
 request_timeout_seconds = 1.5
@@ -14,6 +15,20 @@ failure_threshold = 3
 # Failed/offline devices retry with exponential backoff between these bounds.
 retry_backoff_initial_seconds = 2.0
 retry_backoff_max_seconds = 60.0
+
+[poll_benchmark]
+# Tested from slowest to fastest and stopped after the first unsafe stage.
+intervals_seconds = [1.0, 0.5, 0.25]
+samples_per_interval = 12
+min_success_rate = 0.98
+# p95 poll latency must stay below this fraction of the target interval.
+max_p95_interval_ratio = 0.80
+max_deadline_miss_rate = 0.05
+max_request_failure_rate = 0.02
+# RTU only; TCP reports this metric as null.
+max_bus_utilization_percent = 70.0
+# Prevent accidentally benchmarking extremely aggressive rates.
+minimum_interval_seconds = 0.25
 
 [serial]
 enabled = true
