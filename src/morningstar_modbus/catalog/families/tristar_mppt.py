@@ -5,12 +5,7 @@ from morningstar_modbus.catalog.common import (
     TRISTAR_MPPT_CHARGE_STATES,
     TRISTAR_MPPT_FAULTS,
 )
-from morningstar_modbus.catalog.types import (
-    DeviceProfileSpec,
-    RegisterBlock,
-    RegisterSpec,
-    VerificationSpec,
-)
+from morningstar_modbus.catalog.types import DeviceProfileSpec, RegisterBlock, RegisterSpec
 
 SOURCE = (
     "https://www.morningstarcorp.com/wp-content/uploads/"
@@ -44,32 +39,14 @@ TRISTAR_MPPT = DeviceProfileSpec(
         RegisterSpec("rts_temp", 0x0024, decoder="s16", unit="C"),
         RegisterSpec("battery_temp", 0x0025, decoder="s16", unit="C"),
         RegisterSpec("faults", 0x002C, category="fault", bits=TRISTAR_MPPT_FAULTS),
-        RegisterSpec(
-            "alarms",
-            0x002E,
-            words=2,
-            decoder="u32",
-            category="alarm",
-            bits=TRISTAR_MPPT_ALARMS,
-        ),
+        RegisterSpec("alarms", 0x002E, words=2, decoder="u32", category="alarm", bits=TRISTAR_MPPT_ALARMS),
         RegisterSpec("charge_state", 0x0032, category="state", enum=TRISTAR_MPPT_CHARGE_STATES),
         RegisterSpec("target_voltage", 0x0033, decoder="tristar_voltage", unit="V"),
         RegisterSpec("output_power", 0x003A, decoder="tristar_power", unit="W"),
         RegisterSpec("input_power", 0x003B, decoder="tristar_power", unit="W"),
         RegisterSpec("daily_charge_wh", 0x0044, unit="Wh"),
-        RegisterSpec(
-            "serial_number",
-            0xE0C0,
-            words=4,
-            decoder="ascii_lo_hi",
-            category="metadata",
-        ),
-        RegisterSpec(
-            "model_flag",
-            0xE0CC,
-            category="metadata",
-            enum=((0, "TS-MPPT-45"), (1, "TS-MPPT-60")),
-        ),
+        RegisterSpec("serial_number", 0xE0C0, words=4, decoder="ascii_lo_hi", category="metadata"),
+        RegisterSpec("model_flag", 0xE0CC, category="metadata", enum=((0, "TS-MPPT-45"), (1, "TS-MPPT-60"))),
         RegisterSpec("hardware_version", 0xE0CD, category="metadata"),
     ),
     capabilities=("rtu", "rs232", "eia485", "modbus_tcp", "ethernet", "device_identification"),
@@ -79,19 +56,5 @@ TRISTAR_MPPT = DeviceProfileSpec(
         ("dhcp", "enabled"),
         ("fallback_ip", "192.168.1.253"),
         ("netbios", "tsmppt<serial>"),
-    ),
-    verification=VerificationSpec(
-        document="verified",
-        software="verified",
-        fixture="synthetic",
-        hardware="pending",
-        models=("TS-MPPT-45", "TS-MPPT-60"),
-        fixture_paths=(
-            "tests/fixtures/morningstar/tristar_mppt/TS-MPPT-60/synthetic-fw-29",
-        ),
-        notes=(
-            "Replay coverage is synthetic/spec-derived until a sanitized capture from known "
-            "physical hardware is reviewed and committed."
-        ),
     ),
 )
