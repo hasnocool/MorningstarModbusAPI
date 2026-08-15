@@ -51,15 +51,15 @@ it has no runtime service hooks. PDF parsing support is optional and loaded only
 7. Parse **anchored vendor table rows** instead of treating every `0xNNNN` mention as a register.
 8. Track major address spaces/sections such as runtime RAM, EEPROM/configuration, coils/control,
    logged data, examples, reserved rows, and alternate float encodings.
-9. Compare runtime rows with named register **word spans**, source-backed reserved spans, and declared raw read blocks.
+9. Compare runtime/reserved source observations with declared named register word spans and read blocks using the current conservative comparator.
 10. Emit deterministic `report.json` and `report.md` without modifying application code.
-11. A developer reviews actionable conflicts separately from optional coverage candidates.
+11. A developer reviews actionable conflicts separately from optional coverage candidates and ignored observations.
 12. Any accepted catalog/source change still requires tests and a `catalog-proposals/*.json`
     provenance record.
 
 This intentionally favors false negatives over turning noisy PDF extraction into controller behavior.
 
-## Named registers are not the only valid catalog coverage
+## Runtime catalog can represent reserved ranges
 
 The runtime catalog has first-class concepts for both semantic fields and manufacturer-reserved words:
 
@@ -67,13 +67,13 @@ The runtime catalog has first-class concepts for both semantic fields and manufa
 - `ReservedRegisterRange` describes one or more readable words that Morningstar explicitly marks reserved;
 - `RegisterBlock` describes the broader read-only range used for safe polling/raw evidence.
 
-A vendor row marked **reserved** should not be converted into an invented semantic metric just because a broad Modbus read returns a value there. The correct reviewed outcome may be a `ReservedRegisterRange` declaration.
+A vendor row marked **reserved** should not be converted into an invented semantic metric just because a broad Modbus read returns a value there. After source review, the correct catalog change may be a `ReservedRegisterRange` declaration.
 
-This distinction is particularly visible in the TriStar MPPT v11 map, where the reviewed catalog now explicitly classifies `0x0005-0x0017`, `0x002D`, `0x003F`, `0x004A`, and `0xE0C4-0xE0CB` as reserved while continuing to preserve the raw words when the enclosing blocks are read.
+This distinction is particularly visible in the TriStar MPPT v11 map, where the reviewed runtime catalog explicitly classifies `0x0005-0x0017`, `0x002D`, `0x003F`, `0x004A`, and `0xE0C4-0xE0CB` as reserved while continuing to preserve the raw words when the enclosing blocks are read.
 
-The maintenance scanner remains advisory: an extracted `reserved` observation is evidence for review, not permission for automation to edit the family definition.
+The maintenance **comparator itself is intentionally simpler than the runtime catalog model**. It currently does not use declared `ReservedRegisterRange` objects as a separate matching class when comparing extracted rows. Instead, source rows classified as `reserved` are handled as described below. The generated report is advisory, so a reviewer reconciles those observations with the fuller runtime catalog before making a change.
 
-## Why the scanner distinguishes conflicts from coverage candidates
+## Current comparison behavior
 
 Morningstar documents frequently reuse the same numeric address in different Modbus address spaces.
 For example, a holding-register address and a coil address can both be `0x0018` without referring to
@@ -84,17 +84,33 @@ The runtime catalog also intentionally uses semantic API names. A vendor field s
 `VBTERM_F256` can legitimately map to `battery_terminal_voltage`; different spelling is not a
 discrepancy.
 
-The scanner therefore reports two classes:
+The current comparator applies these rules:
 
-- **Actionable discrepancies** — a source observation directly conflicts with something the runtime
-  catalog already declares, such as a vendor row becoming reserved at a declared semantic register address.
-- **Coverage candidates** — valid runtime table rows that are not yet represented by a named field,
-  declared reserved span, or active read block. These are opportunities for future expansion, not errors.
+- a **reserved source row that overlaps a declared named register** becomes an actionable `declared_register_overlaps_reserved_vendor_row` conflict;
+- a **reserved source row with no named-register overlap** is counted as an ignored `reserved` observation;
+- a non-runtime source row (EEPROM/configuration, coils/control, logs, examples, alternate encodings, and similar scopes) is ignored for runtime-map discrepancy purposes;
+- a runtime source row covered by a named `RegisterSpec` word span is counted as covered, regardless of whether the vendor label spelling matches the public semantic name;
+- a runtime source row with no named field but **inside an existing read block** is emitted as the lower-confidence coverage candidate `unnamed_field_in_read_block`;
+- a runtime source row outside existing read blocks is emitted as `runtime_address_outside_read_blocks` with a higher allowed confidence ceiling.
 
-Addresses that fall inside an existing multi-word field, documented reserved range, or raw read block are considered covered for the appropriate purpose. Rows from EEPROM/configuration, coils/control, log storage, examples, reserved unused locations, and redundant alternate encodings are not treated as missing semantic runtime fields.
+So an active read block alone does **not** mean every runtime vendor field inside it has semantic coverage. The block makes the address safe to read; a missing named runtime field can still be reported as a coverage candidate.
 
-`report.json` keeps `proposed_changes` for actionable conflicts and adds
-`coverage_candidates`, `coverage_candidate_count`, and `ignored_observations`.
+`report.json` keeps actionable conflicts in `proposed_changes`, optional opportunities in `coverage_candidates`, and non-actionable/source-space observations in `ignored_observations` / ignored-count data.
+
+## Reserved-range review workflow
+
+Because extracted reserved rows without a named-register conflict are currently ignored by the comparator, adding or correcting a `ReservedRegisterRange` is a deliberate source-review task rather than an automatic scanner proposal.
+
+A safe review flow is:
+
+1. confirm the source row is from the correct runtime/read-only address space and firmware context;
+2. confirm no documented semantic field occupies that word span;
+3. compare the observation with the existing `RegisterBlock`, `RegisterSpec`, and any current `ReservedRegisterRange` declarations;
+4. add or adjust the reserved range in the family catalog only when official source evidence supports it;
+5. add catalog/intelligence tests for the declared range/effective-map behavior;
+6. add a provenance record bound to the exact source artifact SHA-256.
+
+The scanner remains advisory throughout this process.
 
 ## Commands
 
@@ -185,7 +201,7 @@ A proposal may cover semantic register decoding, a reserved-range classification
 
 The catalog-maintenance workflow has two modes:
 
-- pull requests: validate source coverage, run the provenance gate, and execute catalog tests;
+- pull requests: validate source coverage, run the provenance gate when catalog/source files change, and execute catalog tests;
 - schedule/manual dispatch: download official documents and upload the advisory JSON/Markdown report
   as an Actions artifact.
 
