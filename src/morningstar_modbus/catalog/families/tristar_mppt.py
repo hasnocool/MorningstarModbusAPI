@@ -1,3 +1,4 @@
+# src/morningstar_modbus/catalog/families/tristar_mppt.py
 """TriStar MPPT 150V register catalog."""
 
 from morningstar_modbus.catalog.common import (
