@@ -6,9 +6,9 @@ import ipaddress
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, TypeAlias
+from typing import Literal
 
-PollInterval: TypeAlias = float | Literal["auto"]
+type PollInterval = float | Literal["auto"]
 
 
 @dataclass(slots=True)
