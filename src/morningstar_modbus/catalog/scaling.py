@@ -80,6 +80,11 @@ def decode_value(decoder: str, words: tuple[int, ...], context: Mapping[int, int
         if len(words) != 2:
             raise ValueError("u32 decoder requires two words")
         return ((words[0] & 0xFFFF) << 16) | (words[1] & 0xFFFF)
+    if decoder.startswith("u32_factor:"):
+        if len(words) != 2:
+            raise ValueError("u32_factor decoder requires two words")
+        combined = ((words[0] & 0xFFFF) << 16) | (words[1] & 0xFFFF)
+        return combined * float(decoder.split(":", 1)[1])
     if decoder == "ascii_lo_hi":
         return ascii_low_high(words)
     if decoder == "ascii_hi_lo":
