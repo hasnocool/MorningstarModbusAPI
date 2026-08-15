@@ -9,6 +9,7 @@ import time
 from morningstar_modbus.catalog import CatalogProfile, get_profile
 from morningstar_modbus.config import AppConfig
 from morningstar_modbus.controller_history import ControllerHistoryBackfiller
+from morningstar_modbus.controller_inventory import ControllerInventoryRepository
 from morningstar_modbus.discovery import discover
 from morningstar_modbus.intelligence import DeviceIntelligence, refresh_intelligence
 from morningstar_modbus.lifecycle import DeviceLifecycle
@@ -26,6 +27,7 @@ class Watcher:
         self.config = config
         self.store = store
         self.performance_store = PollingPerformanceStore(store.path)
+        self.controller_inventory = ControllerInventoryRepository(store.path)
         self._devices: dict[str, DiscoveredDevice] = {}
         self._device_ids: dict[str, str] = {}
         self._clients: dict[str, ReadOnlyModbusClient] = {}
@@ -41,6 +43,11 @@ class Watcher:
 
     async def stop(self) -> None:
         self._stopping.set()
+        for device_id in tuple(self._device_ids.values()):
+            try:
+                await self.controller_inventory.mark_device_offline(device_id)
+            except Exception:
+                LOGGER.exception("failed to persist offline state device=%s", device_id)
         history_tasks = tuple(self._history_tasks.values())
         self._history_tasks.clear()
         for task in history_tasks:
@@ -58,6 +65,10 @@ class Watcher:
     async def run(self) -> None:
         await self._history_backfiller.initialize()
         await self.performance_store.initialize()
+        await self.controller_inventory.initialize()
+        # Stored rows describe previous daemon sessions until discovery proves
+        # an endpoint is present again. This prevents stale "online" records.
+        await self.controller_inventory.mark_all_offline()
         next_discovery = 0.0
         try:
             while not self._stopping.is_set():
@@ -83,6 +94,12 @@ class Watcher:
         for key in missing:
             lifecycle = self._lifecycles.setdefault(key, DeviceLifecycle())
             lifecycle.mark_missing()
+            device_id = self._device_ids.get(key)
+            if device_id is not None:
+                try:
+                    await self.controller_inventory.mark_device_offline(device_id)
+                except Exception:
+                    LOGGER.exception("failed to persist missing endpoint offline device=%s", device_id)
             client = self._clients.pop(key, None)
             if client is not None:
                 await client.close()
