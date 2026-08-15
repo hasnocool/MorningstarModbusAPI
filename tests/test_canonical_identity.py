@@ -204,6 +204,54 @@ async def test_usb_path_change_is_recorded_without_changing_canonical_id(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_fallback_usb_identity_promotes_when_controller_serial_appears(tmp_path) -> None:
+    path = str(tmp_path / "telemetry.db")
+    await TelemetryStore(path).initialize()
+    repository = ControllerInventoryRepository(path)
+    endpoint = Endpoint(
+        "serial",
+        "/dev/ttyUSB0",
+        1,
+        baudrate=9600,
+        stop_bits=2,
+        usb_serial="ADAPTER-1",
+    )
+
+    fallback_controller, fallback_device = await repository.register_observation(_device(endpoint, ""))
+    controller_id, canonical_device = await repository.register_observation(_device(endpoint, "TS123456"))
+
+    assert fallback_controller.startswith("usb:")
+    assert controller_id == "morningstar:tristar_mppt:ts123456"
+    assert canonical_device == fallback_device
+    controllers = await repository.list_controllers()
+    assert len(controllers) == 1
+    assert controllers[0]["controller_id"] == controller_id
+    assert controllers[0]["canonical_device_id"] == fallback_device
+
+
+@pytest.mark.asyncio
+async def test_temporary_serial_metadata_loss_reuses_known_controller_identity(tmp_path) -> None:
+    path = str(tmp_path / "telemetry.db")
+    await TelemetryStore(path).initialize()
+    repository = ControllerInventoryRepository(path)
+    endpoint = Endpoint(
+        "serial",
+        "/dev/ttyUSB0",
+        1,
+        baudrate=9600,
+        stop_bits=2,
+        usb_serial="ADAPTER-1",
+    )
+
+    controller_id, canonical_device = await repository.register_observation(_device(endpoint, "TS123456"))
+    observed_controller, observed_device = await repository.register_observation(_device(endpoint, ""))
+
+    assert observed_controller == controller_id
+    assert observed_device == canonical_device
+    assert len(await repository.list_controllers()) == 1
+
+
+@pytest.mark.asyncio
 async def test_watcher_rebinds_lifecycle_and_closes_stale_client(tmp_path, monkeypatch) -> None:
     store = TelemetryStore(str(tmp_path / "telemetry.db"))
     await store.initialize()
