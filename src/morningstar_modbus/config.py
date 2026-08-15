@@ -42,6 +42,19 @@ class TcpConfig:
 
 
 @dataclass(slots=True)
+class HistoryBackfillConfig:
+    enabled: bool = True
+    on_startup: bool = True
+    on_reconnect: bool = True
+    max_days: int = 200
+    calendar_timezone: str = "local"
+    http_port: int = 80
+    http_path: str = "/datalog.html"
+    timeout_seconds: float = 3.0
+    max_response_bytes: int = 1_048_576
+
+
+@dataclass(slots=True)
 class ApiConfig:
     host: str = "127.0.0.1"
     port: int = 8080
@@ -53,6 +66,7 @@ class AppConfig:
     watch: WatchConfig = field(default_factory=WatchConfig)
     serial: SerialConfig = field(default_factory=SerialConfig)
     tcp: TcpConfig = field(default_factory=TcpConfig)
+    backfill: HistoryBackfillConfig = field(default_factory=HistoryBackfillConfig)
     api: ApiConfig = field(default_factory=ApiConfig)
 
 
@@ -65,6 +79,7 @@ def load_config(path: str | None) -> AppConfig:
         watch=WatchConfig(**payload.get("watch", {})),
         serial=SerialConfig(**payload.get("serial", {})),
         tcp=TcpConfig(**payload.get("tcp", {})),
+        backfill=HistoryBackfillConfig(**payload.get("backfill", {})),
         api=ApiConfig(**payload.get("api", {})),
     )
     _validate(config)
@@ -84,6 +99,22 @@ def _validate(config: AppConfig) -> None:
         raise ValueError("retry_backoff_initial_seconds must be positive")
     if config.watch.retry_backoff_max_seconds < config.watch.retry_backoff_initial_seconds:
         raise ValueError("retry_backoff_max_seconds must be >= retry_backoff_initial_seconds")
+    if not 1 <= config.backfill.max_days <= 200:
+        raise ValueError("backfill.max_days must be within 1..200")
+    if not config.backfill.calendar_timezone.strip():
+        raise ValueError("backfill.calendar_timezone must not be empty")
+    if not 1 <= config.backfill.http_port <= 65535:
+        raise ValueError("backfill.http_port must be within 1..65535")
+    if not config.backfill.http_path.startswith("/"):
+        raise ValueError("backfill.http_path must start with /")
+    if not config.backfill.http_path.isascii() or any(
+        char in config.backfill.http_path for char in ("\r", "\n")
+    ):
+        raise ValueError("backfill.http_path must be ASCII and contain no line breaks")
+    if config.backfill.timeout_seconds <= 0:
+        raise ValueError("backfill.timeout_seconds must be positive")
+    if not 16_384 <= config.backfill.max_response_bytes <= 8_388_608:
+        raise ValueError("backfill.max_response_bytes must be between 16 KiB and 8 MiB")
     for subnet in config.tcp.subnets:
         network = ipaddress.ip_network(subnet, strict=False)
         if network.num_addresses > 4096:
