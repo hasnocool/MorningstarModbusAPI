@@ -2,10 +2,17 @@
 
 [database]
 path = "./morningstar.db"
+# Poll-driven telemetry, polling-performance, identity-success, and intelligence
+# persistence is limited to no more than one cycle per physical controller per
+# this interval. Values below 1.0 are rejected even when polling is faster.
+telemetry_write_interval_seconds = 1.0
 
 [watch]
-# Conservative default. Use `morningstar-modbus benchmark-polling` before lowering this.
-poll_interval_seconds = 5.0
+# Either a positive number of seconds or "auto".
+# "auto" safely tests [poll_benchmark] stages using live full-profile reads and
+# selects the fastest stage that every currently-present controller passes.
+# A numeric value is used exactly as configured, including sub-second polling.
+poll_interval_seconds = "auto"
 discovery_interval_seconds = 30.0
 request_timeout_seconds = 1.5
 unit_ids = [1]
@@ -17,6 +24,7 @@ retry_backoff_initial_seconds = 2.0
 retry_backoff_max_seconds = 60.0
 
 [poll_benchmark]
+# Used by both `benchmark-polling` and watch/run when poll_interval_seconds="auto".
 # Tested from slowest to fastest and stopped after the first unsafe stage.
 intervals_seconds = [1.0, 0.5, 0.25]
 samples_per_interval = 12
@@ -29,6 +37,8 @@ max_request_failure_rate = 0.02
 max_bus_utilization_percent = 70.0
 # Prevent accidentally benchmarking extremely aggressive rates.
 minimum_interval_seconds = 0.25
+# If the first auto stage is already unsafe, use this conservative interval.
+auto_fallback_interval_seconds = 5.0
 
 [serial]
 enabled = true
