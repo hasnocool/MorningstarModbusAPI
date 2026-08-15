@@ -1,6 +1,6 @@
-# Morningstar Device Catalog
+# Morningstar device catalog
 
-MorningstarModbusAPI keeps product intelligence separate from transport, persistence, and API code.
+MorningstarModbusAPI keeps product intelligence separate from transport, persistence, and API code. The catalog is the checked-in, reviewable source of truth for how supported Morningstar families are read and decoded.
 
 ## Package layout
 
@@ -9,7 +9,8 @@ src/morningstar_modbus/
 ├── catalog/
 │   ├── __init__.py
 │   ├── common.py          # shared state/fault/alarm dictionaries
-│   ├── profile.py         # catalog-driven polling runtime
+│   ├── compatibility.py   # numeric firmware comparison and gates
+│   ├── profile.py         # catalog-driven polling and metadata caching
 │   ├── registry.py        # model selection and conservative fingerprints
 │   ├── scaling.py         # fixed-point, Float16, BCD, ASCII, bitfield helpers
 │   ├── types.py           # declarative catalog dataclasses
@@ -26,41 +27,42 @@ src/morningstar_modbus/
 │       ├── suresine_classic.py
 │       ├── suresine_gen2.py
 │       └── relay_driver.py
-├── profiles.py            # backwards-compatible imports
-├── discovery.py           # asks the catalog to identify a device
-└── watcher.py             # polls the selected catalog profile
+├── intelligence/          # runtime identity/firmware/capability resolution
+├── discovery.py           # asks catalog + resolver to identify a device
+└── watcher.py             # polls the selected effective profile
 ```
 
-A product family owns its register blocks, named fields, scaling rules, state dictionaries,
-fault/alarm bit definitions, model aliases, communications capabilities, network defaults,
-and primary Morningstar source document.
+A product family owns its register blocks, named fields, scaling rules, state dictionaries, fault/alarm definitions, model aliases, communications capabilities, network defaults, stable metadata fields, firmware constraints, catalog revision, and primary Morningstar source reference.
 
-## Identification
+## Identification policy
 
-Discovery prefers standard Modbus Read Device Identification (`0x2B / 0x0E`). Product
-codes are matched against ordered aliases so specific models such as TriStar MPPT 600V
-win before broader TriStar families.
+Discovery prefers standard Modbus Read Device Identification (`0x2B / 0x0E`). Product codes are matched against ordered aliases so specific families such as TriStar MPPT 600V win before broader TriStar matches.
 
-Some older products or bridges do not return useful Device Identification. In those cases
-the registry uses a deliberately small set of read-only fingerprints for layouts that are
-distinct enough to identify safely. Ambiguous layouts remain `generic`; the service does
-not guess a product family from a plausible voltage alone.
+Some older products or bridges do not provide useful Device Identification. In those cases the registry uses a deliberately small set of read-only fingerprints only where a layout is distinctive enough to identify safely. Ambiguous layouts remain `generic`; a plausible voltage is never enough to guess a product family.
 
-## Polling policy
+Runtime identity strength is handled by the separate intelligence resolver described in [`device-intelligence.md`](device-intelligence.md).
 
-Each profile separates ordinary runtime blocks from cached metadata blocks.
+## Polling and metadata policy
 
-- Runtime telemetry/state/fault registers are refreshed every poll.
-- Stable EEPROM metadata such as serial number, hardware version, model flag, or Modbus
-  identifier is read once per profile instance where the official map supports it.
-- Optional metadata blocks do not make a poll fail if a firmware revision or bridge does
-  not expose them.
-- Every successfully read raw word is retained alongside decoded named values.
-- The service remains read-only. Catalog entries may document configuration fields, but
-  no Modbus write functions are added.
+Each profile separates ordinary runtime blocks from stable/optional metadata blocks.
 
-This keeps the catalog useful as a source of truth without turning every polling cycle into
-a large EEPROM/configuration scan.
+- Runtime telemetry/state/fault registers refresh every poll.
+- Stable metadata such as serial number, firmware, hardware revision, model flag, or Modbus identifier can be read separately and cached.
+- Optional metadata failures do not automatically fail a telemetry poll.
+- Every successfully read raw word is preserved alongside decoded named values.
+- Firmware gates are applied before building the effective register map.
+- The runtime remains read-only even when vendor specifications document configurable fields.
+
+## Firmware-aware catalog declarations
+
+`RegisterBlock` and `RegisterSpec` can declare `since_firmware` and `until_firmware`. `DeviceProfileSpec` can declare catalog revision and a verified firmware range.
+
+The intelligence/runtime layer uses those declarations to:
+
+- suppress fields that do not exist on the connected firmware;
+- surface firmware newer than the catalog's verification ceiling;
+- return a device-specific effective register map through the API;
+- retain the declarative family definition unchanged for review/history.
 
 ## Current family coverage
 
@@ -74,29 +76,25 @@ a large EEPROM/configuration scan.
 | `prostar_mppt` | ProStar MPPT | Float16 telemetry, charge/load states, alarms/faults, power | firmware/system voltage, Modbus/MeterBus IDs |
 | `prostar_pwm` | ProStar PWM Gen3 | Float16 telemetry, charge/load states, alarms/faults | firmware/system voltage |
 | `sunsaver_mppt` | SunSaver MPPT | fixed-point telemetry, charge/load states, lighting, alarms/faults | communications defaults |
-| `sunsaver_duo` | SunSaver Duo | dual-battery volt/current, duty, state, flags/faults | communications defaults |
+| `sunsaver_duo` | SunSaver Duo | dual-battery voltage/current, duty, state, flags/faults | communications defaults |
 | `suresine_classic` | SureSine Classic 300W | battery/AC telemetry, inverter state, alarms/faults | Modbus/MeterBus IDs, serial |
 | `suresine_gen2` | SureSine Gen2 | DC/AC telemetry, load bits, alarms/faults, energy, relay/LED | ratings and TCP-capable model defaults |
-| `relay_driver` | Relay Driver RD-1 | dedicated family selection and raw block retention | official MODBUS source indexed; named table intentionally pending |
+| `relay_driver` | Relay Driver RD-1 | dedicated family selection and raw block retention | official Modbus source indexed; exact named table intentionally conservative |
 
-`relay_driver` is intentionally marked `source-indexed` rather than pretending an
-unverified register table is complete. The catalog architecture is ready for its exact
-named fields once the official table is parsed and validated.
+Relay Driver is intentionally source-indexed rather than pretending an unverified named table is complete.
 
-## API
+## Catalog API
 
-`GET /v1/catalog` returns a compact list of known Morningstar families, capabilities,
-coverage status, read blocks, and source references.
+`GET /v1/catalog` returns a compact list of known Morningstar families, capabilities, coverage status, read blocks, source references, and catalog metadata.
 
-`GET /v1/catalog/{profile_name}` returns the detailed register definitions including
-address, function, decoder/scaling rule, unit, category, enum values, and fault/alarm bits.
+`GET /v1/catalog/{profile_name}` returns the detailed declarative register definition for a profile.
 
-These endpoints describe the catalog itself; telemetry remains under `/v1/devices`.
+`GET /v1/devices/register-map?device_id=...` returns the effective profile after applying the connected device's firmware gates.
 
 ## Source policy
 
-Every family module points to an official Morningstar document and the same source is
-recorded in `docs/vendor/morningstar/sources.json`. Register definitions should only be
-expanded from a vendor document or a captured hardware fixture whose identity and firmware
-are known. Community examples can be useful for testing, but are not authoritative enough
-to define a new map by themselves.
+Every family module points to an official Morningstar source ID recorded in `docs/vendor/morningstar/sources.json`. Register definitions should be expanded from official vendor material or from a captured hardware fixture whose exact identity/firmware is known and whose behavior is reconciled with the vendor documentation.
+
+Community examples are useful for tests and troubleshooting, but they are not authoritative enough to define a new register map by themselves.
+
+Catalog/source-index changes must satisfy the provenance gate documented in [`../catalog-proposals/README.md`](../catalog-proposals/README.md).
