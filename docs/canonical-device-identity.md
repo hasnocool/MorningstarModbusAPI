@@ -1,114 +1,134 @@
 # Canonical controller identity and endpoint reconciliation
 
-MorningstarModbusAPI now has two related inventory concepts:
+MorningstarModbusAPI keeps raw connection/device rows for storage provenance while modelling the physical Morningstar controller separately from its current USB/TCP endpoint.
 
-- **connection/device rows** are the backward-compatible `devices.id` values used by existing telemetry APIs;
-- **controller identity** represents the physical Morningstar controller independently of its current IP address, USB device path, or other connection locator.
+The identity system now has three distinct identifiers:
 
-The controller inventory introduced before this work grouped endpoint rows at query time. This layer persists that grouping and makes it part of the watcher reconnect path so future endpoint moves reuse one canonical telemetry ID instead of creating another history.
+- **`controller_uid`** — generated once and immutable; this is the application-facing physical-controller identifier;
+- **`controller_id`** — the current strongest evidence-derived identity alias and retained compatibility field;
+- **`device_id`** — the raw telemetry-owning row used by existing device-scoped APIs and historical foreign keys.
+
+See [`controller-scoped-data.md`](controller-scoped-data.md) for controller-first query behavior.
 
 ## Identity hierarchy
 
-The same conservative hierarchy used by `/v1/controllers` remains authoritative:
+Evidence-derived controller aliases continue to use the conservative hierarchy:
 
 1. Morningstar controller serial number when available;
 2. USB adapter serial + Modbus unit when controller metadata is unavailable;
 3. exact endpoint identity as the final fallback.
 
-Controller-serial identity produces IDs such as:
+For example:
 
 ```text
-morningstar:tristar_mppt:ts123456
+controller_uid: ctrl_8b17...
+
+aliases:
+  usb:adapter-1:unit:1
+  morningstar:tristar_mppt:ts123456   <- current strongest alias
 ```
+
+`controller_id` can therefore change when identity evidence improves. `controller_uid` does not.
 
 Serial-less hardware is not merged merely because model, profile, firmware, or Modbus unit happen to match.
 
-## Additive persistent schema
+## Persistent schema
 
-Initialization creates these tables without rewriting telemetry:
+The persisted controller inventory uses:
 
-- `controller_identities` — stable controller ID and its selected canonical `device_id`;
+- `controller_identities` — the current evidence-derived controller identity and selected canonical `device_id`;
 - `controller_device_members` — legacy/historical device IDs that belong to the controller;
 - `controller_connections` — known endpoint identities and current presence;
-- `controller_connection_locations` — concrete IP/serial path history, including locator changes hidden behind one stable USB-serial key;
-- `controller_identity_evidence` — endpoint, USB serial, product, model, and controller-serial observations with confidence and counts.
+- `controller_connection_locations` — concrete IP/serial path history;
+- `controller_identity_evidence` — endpoint, USB serial, product, model, and controller-serial observations;
+- `physical_controllers` — immutable `controller_uid`, canonical telemetry device ID, and current alias;
+- `controller_identity_aliases` — historical/current evidence-derived aliases mapped to the immutable UID.
 
-Existing databases are bootstrapped from `devices` plus `device_intelligence`. For a pre-existing controller that already has several endpoint-backed IDs, the most recently seen existing row becomes the canonical `device_id`. Older IDs are retained as history members.
+Existing databases are bootstrapped without rewriting telemetry. For a controller that already has several endpoint-backed IDs, the most recently seen existing row remains the canonical `device_id`; older IDs remain history members.
 
 No `poll_samples`, `register_values`, controller daily history, polling-performance records, or error rows are rewritten.
 
-## Future reconnect continuity
+## Identity promotion
 
-After bootstrap, discovery first resolves every observed endpoint to a controller identity. The watcher groups observations by controller before deciding what to poll.
+A controller may initially be seen only through a USB adapter or endpoint and later expose its Morningstar serial number.
+
+Previously this promotion changed the controller's application-facing identity. The immutable UID layer now preserves the old alias and associates the new stronger alias with the same `controller_uid`.
 
 ```text
-USB/TCP discovery observations
-            |
-            v
-persisted controller identity
-            |
-      group by controller
-            |
-            +--- current endpoint still present? --- keep it
-            |
-            `--- otherwise choose TCP -> USB-serial serial -> other serial
-            |
-            v
-      one polling session
-            |
-            v
-canonical device_id
-            |
-            +--- telemetry
-            +--- polling performance
-            +--- controller daily-history backfill
+first observation
+  ctrl_8b17... -> usb:adapter-1:unit:1
+
+later observation
+  ctrl_8b17... -> morningstar:tristar_mppt:ts123456
+                   ^ current alias
 ```
 
-If the selected endpoint changes, the stale client is closed and the existing `DeviceLifecycle` object is moved to the replacement endpoint. `endpoint_changes` increments while telemetry continues under the same canonical device ID.
+Both aliases remain resolvable to the same controller UID.
 
-This also handles a serial adapter whose USB serial is stable while Linux changes `/dev/ttyUSB0` to `/dev/ttyUSB1`: the stable endpoint key can remain the same, but the changed `Endpoint` object still forces stale-client replacement and the concrete locator is retained in location history.
+## Reconnect continuity
+
+Discovery resolves observed endpoints to a physical controller before polling. The watcher groups observations by immutable controller UID and keeps one selected connection for normal polling.
+
+```text
+USB/TCP observations
+        |
+        v
+controller registry
+        |
+        +-- immutable controller_uid
+        +-- current controller_id alias
+        +-- canonical device_id
+        |
+        v
+one watcher lifecycle / polling session
+        |
+        +-- telemetry
+        +-- polling performance
+        `-- retained-history backfill
+```
+
+If the selected endpoint changes, the stale client is closed and the existing `DeviceLifecycle` object moves to the replacement endpoint. IP changes, `/dev/ttyUSB*` re-enumeration, and identity promotion therefore do not create a new runtime controller lifecycle.
 
 ## Multiple simultaneous connections
 
-A physical controller may be discoverable over serial and Ethernet at the same time. Both connections are retained in `/v1/controllers`, but the watcher uses one selected connection for normal polling to avoid duplicate telemetry.
+A physical controller may be visible over serial and Ethernet at the same time. All observed connections remain in the inventory, while the watcher selects one normal polling endpoint to avoid duplicate telemetry.
 
-The current endpoint is preserved while it remains available. When selection is required, the preference is:
+Selection remains:
 
-1. TCP;
-2. serial with a stable USB serial;
-3. other serial.
+1. keep the current endpoint while it is still available;
+2. otherwise prefer TCP;
+3. then serial with stable USB serial identity;
+4. then other serial.
 
 ## Endpoint reuse protection
 
-An endpoint is not automatically trusted merely because it was used before. If a reused IP/endpoint is now accompanied by a different known controller serial, it resolves to a different controller identity rather than inheriting the previous controller's telemetry.
-
-The newly created canonical device ID uses a deterministic conflict-safe identifier when the raw endpoint stable key is already occupied.
+A previously known endpoint is not sufficient proof of controller identity. If an IP/endpoint is reused and a different known Morningstar controller serial is observed, the new hardware is separated rather than inheriting the previous controller's history.
 
 ## API behavior
 
-`GET /v1/controllers` remains the physical-controller inventory API. Its records now include:
+`GET /v1/controllers` is the physical-controller inventory API. Records include:
 
-- `controller_id` — stable physical-controller identity;
-- `canonical_device_id` / `current_device_id` — the device ID used for future telemetry;
-- `history_device_ids` — canonical plus legacy endpoint-backed IDs that still contain historical rows;
-- current/previous concrete connections;
-- current connection count/status and controller metadata.
+- `controller_uid` — immutable application-facing identity;
+- `controller_id` — current evidence-derived alias;
+- `canonical_device_id` / `current_device_id` — device ID used for future telemetry;
+- `history_device_ids` — canonical plus preserved legacy IDs containing historical rows;
+- current/previous connections and controller metadata.
 
-`GET /v1/devices` remains available for backward compatibility.
+Controller-first history/query endpoints are rooted at `/v1/controllers/{controller_uid}/...` and automatically span `history_device_ids` while preserving `source_device_id` on raw evidence.
 
-### Legacy history
-
-The migration deliberately does not rewrite old foreign keys. A controller that already accumulated telemetry under several endpoint IDs can therefore have more than one value in `history_device_ids`. Future endpoint moves use `canonical_device_id`, so the split stops growing after migration.
-
-Applications that need pre-migration history can use `history_device_ids` to retrieve the preserved legacy segments. A future controller-scoped history query layer can combine those IDs without mutating raw evidence.
+`GET /v1/devices` and the existing `/v1/devices/...` routes remain available for backward compatibility and raw endpoint/device inspection.
 
 ## Lifecycle status
 
-The offline persistence introduced with the controller inventory remains intact:
+Offline persistence remains unchanged:
 
 - previous stored online/error state is cleared when the watcher starts;
-- a controller is marked offline when all discovered connections disappear;
+- a controller is marked offline when its selected discovered connection disappears;
 - shutdown marks canonical controller rows offline;
 - freshness guards prevent stale stored state from presenting as currently online.
 
-Detailed lifecycle events/counters remain owned by the in-memory `DeviceLifecycle` state machine; this change does not create a competing persisted state machine.
+Detailed lifecycle transitions/counters remain owned by the in-memory `DeviceLifecycle` state machine. The immutable UID layer changes identity ownership, not the lifecycle state model.
+
+## Read-only boundary
+
+This identity work does not add Modbus writes, resets, configuration, equalization triggers, coil writes, or generic function-code passthrough. MorningstarModbusAPI remains a read-only telemetry/evidence boundary.
