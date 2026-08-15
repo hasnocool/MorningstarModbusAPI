@@ -191,7 +191,15 @@ class Watcher:
                 poll_latency_ms=latency_ms,
                 success=True,
             )
-            await self.performance_store.save(device_id, performance, sample_id=sample_id, mode="watch")
+            try:
+                await self.performance_store.save(
+                    device_id,
+                    performance,
+                    sample_id=sample_id,
+                    mode="watch",
+                )
+            except Exception:
+                LOGGER.exception("failed to persist poll-performance telemetry device=%s", device_id)
             if intelligence is not None:
                 intelligence = refresh_intelligence(
                     intelligence,
