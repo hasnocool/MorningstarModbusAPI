@@ -1,60 +1,38 @@
 # Morningstar protocol reference notes
 
-Verified against official Morningstar documentation on **2026-08-14**. This file is a concise implementation aid, not a replacement for the vendor documents listed in `sources.json`.
+Verified against official Morningstar documentation indexed by this repository on **2026-08-14**. This file is an implementation aid, not a replacement for the vendor documents in `sources.json`.
 
-## TriStar MPPT communications baseline
+## Runtime safety rule
 
-From the TriStar MPPT MODBUS Specification V11 (`MS-002582`, 2018-08-21):
+Morningstar vendor documents commonly describe both read and write functions. MorningstarModbusAPI intentionally implements a read-only runtime boundary. Writable registers/coils may be documented as source context, but the polling service and HTTP API do not write controller configuration or control state.
 
-- TriStar MPPT supports Modbus RTU over its serial communications interfaces.
-- TS-MPPT-60 models also support Modbus TCP through Ethernet.
-- Serial defaults are 9600 baud, 8 data bits, no parity, no flow control, with one or two stop bits accepted by the controller.
-- The documented default Modbus TCP port is 502 and the default Modbus unit ID is 1.
-- The controller closes the TCP socket after each Modbus response, so a fresh connection per transaction is a valid compatibility strategy.
-- Register addressing in the document is expressed as request-PDU addresses.
-- Core telemetry is available through holding/input-register reads and uses device-provided voltage/current scale factors.
+## Cross-product transport baseline
 
-Primary source:
+Across the currently indexed product documentation, Morningstar devices use product-dependent combinations of USB, RS-232, EIA-485/RS-485, MeterBus, and Ethernet while exposing Modbus RTU and/or Modbus TCP at the application layer.
 
-- https://www.morningstarcorp.com/wp-content/uploads/technical-doc-tristar-mppt-modbus-specification-en.pdf
+Project implications:
 
-## Transport implications for this project
+- **TCP:** validate MBAP transaction/protocol/unit fields and tolerate product-specific connection behavior.
+- **RTU:** serialize access to each physical serial endpoint and keep blocking PySerial work off the asyncio event loop.
+- **USB:** treat USB adapters/interfaces as transport to a serial Modbus protocol rather than inventing a separate application protocol.
+- **EIA-485:** include unit ID in logical device identity because multiple addressed devices can share one bus.
+- **Discovery:** endpoint reachability does not prove product type; prefer Device Identification and conservative product fingerprints.
+- **Firmware:** use the product profile's firmware gates rather than assuming one map applies to every firmware revision.
 
-The current implementation choices should remain aligned with these vendor behaviors:
+## TriStar MPPT 150V baseline
 
-- **TCP:** serialize requests per logical client, validate MBAP transaction/protocol/unit fields, and tolerate/expect connection closure after each response.
-- **RTU:** serialize access to each physical serial endpoint and keep blocking serial operations off the asyncio event loop.
-- **USB:** treat USB as a host-side transport adapter to a serial protocol, not as a separate Modbus application protocol.
-- **EIA-485:** expect multiple addressed devices on one physical bus; unit ID is therefore part of logical device identity.
-- **Discovery:** endpoint reachability does not prove product type. Use device identification when available and retain a generic read-only fallback.
+The TriStar MPPT MODBUS Specification V11 (`MS-002582`, 2018-08-21) remains the primary source for the TriStar MPPT 150V family.
 
-## RSC-1 / EIA-485 context
+Documented baseline includes:
 
-Morningstar's RSC-1 documentation describes the adapter as an RS-232-to-EIA-485 bridge operating at 9600 baud. It supports connection from a PC through RS-232, including a PC USB-to-RS-232 cable. The EIA-485 side is intended to be daisy-chained and uses differential data lines with appropriate bus wiring/termination practices.
+- Modbus RTU serial communications;
+- Ethernet/Modbus TCP on supported TS-MPPT-60 variants;
+- default Modbus TCP port 502 and unit ID 1;
+- request-PDU register addressing;
+- holding/input-register telemetry using controller-specific scaling values;
+- Device Identification support and communications/network configuration context.
 
-Primary source:
-
-- https://www.morningstarcorp.com/wp-content/uploads/operation-manual-rsc-eia-485-to-serial-en.pdf
-
-## Cross-product connectivity context
-
-The 2024 Morningstar Product Connectivity Manual is the main cross-product reference for adding future profiles. It separates communications interfaces from higher-level protocols and covers local and remote Modbus connections, USB/RS-232 distinctions, MeterBus networks, HTTP, SNMP, logging, security, and troubleshooting.
-
-Primary source:
-
-- https://www.morningstarcorp.com/wp-content/uploads/technical-doc-morningstar-product-connectivity-manual-networking-communications-en.pdf
-
-## Bridged networks
-
-Morningstar documents a topology where a TS-MPPT-60 can bridge Modbus/TCP requests from Ethernet onto an EIA-485 network. Multiple downstream controllers can share the EIA-485 bus as long as they have unique Modbus IDs. This is useful future context for discovery because multiple logical devices may be reachable through one TCP host.
-
-Historical source:
-
-- https://www.morningstarcorp.com/wp-content/uploads/2014/02/TSMPPT.REP_.485_bridging.01.EN_.pdf
-
-## TriStar MPPT register landmarks
-
-Useful V11 register landmarks already reflected in the current TriStar profile include:
+Useful V11 register landmarks reflected in the catalog include:
 
 | PDU address | Meaning |
 | --- | --- |
@@ -77,16 +55,34 @@ Useful V11 register landmarks already reflected in the current TriStar profile i
 | `0x003B` | Input power |
 | `0x0044` | Daily charge watt-hours |
 
-Do not extend this table by inference. New addresses and scaling rules should be added only after checking the appropriate Morningstar product document.
+Do not extend this table by inference. New addresses/scaling rules should be checked against the appropriate official product document.
 
-## Product-profile expansion checklist
+## Newer product families
 
-For each newly supported Morningstar model/family:
+The current source index includes newer specifications such as GenStar MPPT V03 and ReadyEdge V01. These products use broader metadata and telemetry maps and may expose Float16/Float32 values, SOC information, network defaults, bridging/context fields, and larger alarm/fault structures.
 
-1. Locate the official product page and current support-library entries.
-2. Find a Modbus document, register map, or other authoritative machine-interface specification.
-3. Record document title, ID/version/date, URL, and verification date in `sources.json`.
-4. Add a product-specific profile instead of reusing TriStar scaling by assumption.
-5. Add fixtures/tests for representative raw register blocks.
-6. Preserve raw words alongside decoded values.
-7. Keep write support separate and explicitly guarded if it is ever introduced.
+Do not reuse TriStar scaling on these products by analogy; each family owns its own decoders and source evidence.
+
+## RSC-1 / EIA-485 context
+
+Morningstar's RSC-1 documentation describes an RS-232-to-EIA-485 adapter used to connect host serial clients to a Morningstar EIA-485 network. The bus can contain multiple addressed devices, so unit ID remains part of logical identity and discovery.
+
+## Bridged networks
+
+Morningstar documents topologies where an Ethernet-capable Morningstar device can bridge Modbus/TCP requests to downstream devices on an EIA-485 or connected-product network. This matters for discovery because multiple logical devices can be reachable through one TCP host.
+
+The runtime should therefore model endpoint and unit ID separately rather than treating one IP address as one controller.
+
+## Profile-expansion checklist
+
+For a newly supported Morningstar model/family:
+
+1. Locate the official product/support-library entry.
+2. Find the current Modbus document, register map, operation manual, or other authoritative machine-interface specification.
+3. Record the source in `sources.json` and tie the family profile to its source ID.
+4. Add product-specific decoding rather than borrowing scaling by assumption.
+5. Declare firmware gates when a field/block is firmware-dependent.
+6. Add representative tests/fixtures.
+7. Preserve raw words alongside decoded values.
+8. Record reviewed source SHA-256 provenance for vendor-derived catalog changes.
+9. Keep runtime writes out of scope unless the project explicitly creates a separately reviewed write-safety design in the future.

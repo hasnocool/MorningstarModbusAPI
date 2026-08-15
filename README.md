@@ -1,28 +1,47 @@
 # MorningstarModbusAPI
 
-A small, read-only Morningstar Modbus data service for **USB / RS-232 / RS-485 (RTU)** and **Modbus TCP/IP** controllers.
+MorningstarModbusAPI is a read-only Morningstar Modbus data service for USB / RS-232 / RS-485 (RTU) and Modbus TCP/IP devices.
 
-It is designed to do one job well:
+Its job is deliberately narrow: discover supported Morningstar devices, identify them conservatively, read and decode telemetry, retain both raw and interpreted values in SQLite, and expose the result through a stable HTTP API.
 
-> discover Morningstar/Modbus devices, continuously read them, preserve the readings in SQLite, and expose those readings through a stable HTTP API for other applications.
+The project does **not** expose Modbus write operations. Vendor specifications may document write-capable registers and coils, but the runtime service remains a read-only boundary.
 
-The backend design is derived from the proven transport and scaling patterns in `hasnocool/TriStarMPPT`, but this repository deliberately leaves out the dashboard, analytics, automation, and controller-specific application layers.
+## Current main-branch capabilities
 
-## Features
-
-- Automatic USB/serial enumeration through PySerial.
-- Modbus RTU over USB serial adapters, RS-232, or RS-485 adapters.
-- Modbus TCP over explicit hosts or bounded local CIDRs.
-- Standard Modbus device identification (`0x2B / 0x0E`) when supported.
-- Conservative read-only family fingerprints when older hardware does not expose useful device identification.
-- Continuous rediscovery and reconnect by the watcher.
-- Stable serial identity using USB serial metadata when available, so a replugged adapter can move from one `/dev/ttyUSB*` path to another without becoming a new logical device.
+- Automatic PySerial USB/serial enumeration.
+- Modbus RTU over USB serial adapters, RS-232, and RS-485 adapters.
+- Modbus TCP over explicit hosts or explicitly configured bounded local CIDRs.
+- Standard Modbus Read Device Identification (`0x2B / 0x0E`) when supported.
+- Conservative read-only family fingerprints for older devices that do not provide useful identification.
+- A Morningstar-wide declarative device catalog with product-specific register maps, scaling, enums, alarms, faults, metadata, communications capabilities, and source references.
+- Firmware-aware register and block gating through `since_firmware` / `until_firmware` metadata.
+- Device intelligence that combines identity, targeted metadata reads, firmware compatibility, capability negotiation, confidence scoring, and post-poll plausibility validation.
+- Continuous rediscovery and reconnect through the watcher.
+- Stable serial identity based on USB serial metadata where available, so reconnecting on a different `/dev/ttyUSB*` path does not create a new logical device.
 - SQLite/WAL telemetry history using non-blocking `aiosqlite` access.
-- Raw register retention plus a structured **Morningstar-wide device catalog** with model-specific decoding.
-- FastAPI JSON API and automatic OpenAPI docs.
-- No Modbus write functions in the initial release.
+- A separate persisted device-intelligence record so confidence/identity changes do not rewrite telemetry history.
+- FastAPI JSON endpoints plus automatic OpenAPI documentation.
+- Automated catalog-maintenance tooling that validates source coverage, downloads official Morningstar source documents, extracts conservative register observations, creates advisory diffs, and enforces reviewed provenance for catalog changes.
 
-## Install
+The latest published release is **v0.2.0**. `main` also contains the catalog-maintenance layer merged after that release.
+
+## Package layout
+
+```text
+src/morningstar_modbus/
+├── catalog/         # declarative Morningstar register/source truth
+├── intelligence/    # identity, firmware compatibility, confidence, validation
+├── maintenance/     # official-source validation and advisory PDF/spec scanning
+├── api.py           # FastAPI presentation layer
+├── discovery.py     # transport discovery + intelligence resolution
+├── storage.py       # SQLite/WAL persistence
+├── watcher.py       # polling, reconnect, intelligence refresh
+└── ...
+```
+
+See [`docs/README.md`](docs/README.md) for the complete documentation index.
+
+## Installation
 
 Python 3.12+ is required.
 
@@ -34,17 +53,29 @@ python -m pip install -e .
 cp config.example.toml config.toml
 ```
 
-On Linux, make sure the service account can open your serial adapter, commonly by adding it to the `dialout` or equivalent serial-device group.
+For development:
+
+```bash
+python -m pip install -e '.[dev]'
+```
+
+For official vendor-document scanning:
+
+```bash
+python -m pip install -e '.[maintenance]'
+```
+
+On Linux, make sure the service account can open the serial adapter, commonly by adding it to the `dialout` or equivalent serial-device group.
 
 ## CLI
 
-### Discover configured devices
+Discover configured devices:
 
 ```bash
 morningstar-modbus --config config.toml discover
 ```
 
-### One raw Modbus TCP read
+Perform one raw Modbus TCP read:
 
 ```bash
 morningstar-modbus read \
@@ -56,7 +87,7 @@ morningstar-modbus read \
   --count 4
 ```
 
-### One raw USB/RS-485/RS-232 read
+Perform one raw serial read:
 
 ```bash
 morningstar-modbus read \
@@ -69,38 +100,41 @@ morningstar-modbus read \
   --count 16
 ```
 
-### Watch and persist only
+Watch and persist without serving HTTP:
 
 ```bash
 morningstar-modbus --config config.toml watch
 ```
 
-### Serve existing database only
+Serve an existing database:
 
 ```bash
 morningstar-modbus --config config.toml serve
 ```
 
-### Run the complete service
+Run discovery, polling, persistence, and API together:
 
 ```bash
 morningstar-modbus --config config.toml run
 ```
 
-By default the API binds only to `127.0.0.1:8080`. Change `[api]` in the TOML file if another machine should ingest it.
+By default the API binds to `127.0.0.1:8080`. Change `[api]` in the TOML configuration only when another host needs access.
 
-## API
+## HTTP API
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /health` | Liveness/version |
-| `GET /v1/catalog` | Known Morningstar product families and coverage |
-| `GET /v1/catalog/{profile_name}` | Full register/scaling/state/fault definition for one profile |
-| `GET /v1/devices` | All discovered devices |
-| `GET /v1/devices/{device_id}` | Device metadata and status |
-| `GET /v1/devices/latest?device_id=...` | Latest poll with register values |
-| `GET /v1/devices/samples?device_id=...&limit=100` | Poll history |
-| `GET /v1/devices/registers/{name}/history?device_id=...` | Time series for a named register |
+| `GET /health` | Liveness and package version |
+| `GET /v1/catalog` | Compact Morningstar catalog summary |
+| `GET /v1/catalog/{profile_name}` | Detailed register/scaling/state/fault definition for one profile |
+| `GET /v1/devices` | Discovered devices and current status |
+| `GET /v1/devices/{device_id}` | Device metadata/status; path form supports IDs containing `/` |
+| `GET /v1/devices/latest?device_id=...` | Latest persisted telemetry sample |
+| `GET /v1/devices/samples?device_id=...&limit=100` | Historical samples |
+| `GET /v1/devices/registers/{name}/history?device_id=...` | Named-register time series |
+| `GET /v1/devices/intelligence?device_id=...` | Persisted identity/firmware/capability evidence |
+| `GET /v1/devices/register-map?device_id=...` | Effective firmware-filtered register map |
+| `GET /v1/devices/profile/validation?device_id=...` | Confidence, status, evidence, and validation warnings |
 | `GET /docs` | Swagger/OpenAPI UI |
 
 Example:
@@ -108,13 +142,13 @@ Example:
 ```bash
 curl http://127.0.0.1:8080/v1/catalog
 curl http://127.0.0.1:8080/v1/devices
-curl --get http://127.0.0.1:8080/v1/devices/latest \
+curl --get http://127.0.0.1:8080/v1/devices/intelligence \
   --data-urlencode 'device_id=tcp:192.168.1.50:502:unit:1'
 ```
 
-## TCP discovery
+## TCP discovery policy
 
-The service intentionally does **not** sweep arbitrary networks by default. Add exact controllers:
+The service does not sweep arbitrary networks by default. Configure exact hosts:
 
 ```toml
 [tcp]
@@ -130,40 +164,46 @@ subnets = ["192.168.1.0/24"]
 
 Networks larger than 4096 addresses are rejected.
 
-## Data model
+## Device catalog and firmware intelligence
 
-SQLite stores:
+The catalog covers current and legacy Modbus-capable Morningstar families including GenStar MPPT, ReadyEdge, TriStar MPPT 150V/600V, TriStar PWM, ProStar MPPT/PWM, SunSaver MPPT/Duo, SureSine Classic/Gen2, and Relay Driver.
 
-- device transport/identity and online/error state;
-- poll timestamps and latency;
-- raw register words;
-- decoded numeric or text values;
-- units and register addresses;
-- poll errors.
+Relay Driver remains intentionally conservative: the profile exists for family selection and raw-block retention while exact named coverage stays pending until its vendor table is fully verified.
 
-The watcher never requires an API consumer to be online. Consumers can restart independently and query the retained history later.
+The intelligence resolver adds a runtime view of the physical device: model/family evidence, firmware and hardware metadata, effective firmware-gated register map, confidence/status, negotiated capabilities, and plausibility warnings.
 
-## Morningstar device catalog
+See:
 
-Discovery now selects a structured product profile instead of treating everything except TriStar MPPT as generic registers. The catalog covers current and legacy Modbus-capable families including GenStar MPPT, ReadyEdge, TriStar MPPT/PWM, ProStar MPPT/PWM, SunSaver MPPT/Duo, and SureSine Classic/Gen2. A dedicated Relay Driver profile is present with conservative raw coverage until its exact named table is fully verified.
+- [`docs/device-catalog.md`](docs/device-catalog.md)
+- [`docs/device-intelligence.md`](docs/device-intelligence.md)
 
-Each family module owns its register blocks, scaling rules, operating-state enums, fault/alarm bitfields, metadata fields, communications capabilities, network defaults, and official Morningstar source reference. Stable metadata such as serial number and hardware/firmware information is cached rather than re-read on every poll.
+## Official Morningstar source maintenance
 
-See [`docs/device-catalog.md`](docs/device-catalog.md) for the package layout, coverage table, source policy, and extension rules.
+The authoritative source index is [`docs/vendor/morningstar/sources.json`](docs/vendor/morningstar/sources.json). Full Morningstar PDFs are not republished in this repository; the source index and vendor manifest point to Morningstar's official copies, while local/CI scans download exact artifacts into an ignored cache.
 
-## Vendor documentation
-
-Official Morningstar source documents are indexed under [`docs/vendor/morningstar/`](docs/vendor/morningstar/README.md). The repository keeps a verified source catalog and concise implementation notes without vendoring the full vendor PDFs.
-
-Fetch the current official documents into a local ignored cache when needed:
+Validate the checked-in source/catalog relationship:
 
 ```bash
-python tools/fetch_morningstar_docs.py
+python -m morningstar_modbus.maintenance validate
 ```
 
-Use `python tools/fetch_morningstar_docs.py --list` to inspect the source catalog without downloading files.
+Download the active official source set and generate an advisory report:
 
-## Development
+```bash
+python -m morningstar_modbus.maintenance scan
+```
+
+Reuse existing cached artifacts:
+
+```bash
+python -m morningstar_modbus.maintenance scan --use-cache
+```
+
+The default cache is `docs/vendor/morningstar/cache/`; generated reports go to `catalog-maintenance-report/`. Both are git-ignored.
+
+See [`docs/catalog-maintenance.md`](docs/catalog-maintenance.md) and [`docs/vendor/morningstar/README.md`](docs/vendor/morningstar/README.md).
+
+## Development and validation
 
 ```bash
 python -m pip install -e '.[dev]'
@@ -171,4 +211,4 @@ ruff check .
 pytest -q
 ```
 
-See [docs/architecture.md](docs/architecture.md) for the runtime design.
+Catalog/source changes have an additional provenance gate. See [`catalog-proposals/README.md`](catalog-proposals/README.md).
