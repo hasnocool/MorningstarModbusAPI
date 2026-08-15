@@ -82,11 +82,11 @@ A capture bundle contains:
 
 - `manifest.json`: capture type, endpoint metadata, profile/model/firmware context, and evidence classification;
 - `identification.json`: decoded Modbus device identification;
-- `transactions.jsonl`: ordered request/response records including raw frames/PDUs, timing, decoded words, and errors;
-- `registers.json`: decoded values observed during the captured poll;
+- `transactions.jsonl`: ordered request/response records including raw frames/PDUs, request shape, timing, and errors;
+- `registers.json`: raw register words and decoded named values observed during the captured poll;
 - `expected.json`: assertions used by deterministic replay/integration tests.
 
-Structured identifiers are redacted by default. Raw protocol frames are preserved for faithful replay and can still contain identifiers, so capture review is a required publication step.
+Decoded register values are stored in `registers.json`, not duplicated into each transaction record. Structured identifiers are redacted by default. Raw protocol frames are preserved for faithful replay and can still contain identifiers, so capture review is a required publication step.
 
 ## Device lifecycle
 
@@ -166,7 +166,7 @@ Verification evidence is kept separate from vendor-derived family definitions so
 
 ### Verification
 
-`morningstar_modbus.verification` runs the normal resolver and profile against a live or replay client and reports identity, firmware compatibility, block availability, named-register coverage, plausibility results, catalog evidence, and the final verification outcome.
+`morningstar_modbus.verification` runs the normal resolver and profile against a live or replay client and reports model/firmware/hardware revision, transport/unit ID, intelligence status/confidence, required and optional block availability, named-register coverage, warning messages in JSON output, and the final verification outcome.
 
 ### Watcher and lifecycle
 
