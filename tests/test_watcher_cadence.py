@@ -63,6 +63,10 @@ class FakeClient:
         return None
 
 
+def _disable_backfill(*args: object, **kwargs: object) -> None:
+    return None
+
+
 @pytest.mark.asyncio
 async def test_subsecond_polling_persists_no_faster_than_once_per_second(tmp_path) -> None:
     config = AppConfig(
@@ -98,7 +102,7 @@ async def test_subsecond_polling_persists_no_faster_than_once_per_second(tmp_pat
     watcher._traffic[key] = PollTrafficTracker("tcp")
 
     # Backfill is unrelated to the persistence-cadence test.
-    watcher._schedule_history_backfill = lambda *args, **kwargs: None  # type: ignore[method-assign]
+    watcher._schedule_history_backfill = _disable_backfill  # type: ignore[method-assign]
 
     first = await watcher._poll_one(key, device, 0.2)
     clock[0] = 0.2
@@ -142,7 +146,7 @@ async def test_database_failure_does_not_turn_successful_modbus_poll_into_device
     watcher._profiles[key] = FakeProfile()  # type: ignore[assignment]
     watcher._clients[key] = FakeClient()  # type: ignore[assignment]
     watcher._traffic[key] = PollTrafficTracker("tcp")
-    watcher._schedule_history_backfill = lambda *args, **kwargs: None  # type: ignore[method-assign]
+    watcher._schedule_history_backfill = _disable_backfill  # type: ignore[method-assign]
 
     performance = await watcher._poll_one(key, device, 1.0)
 
