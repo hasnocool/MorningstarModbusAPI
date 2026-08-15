@@ -218,11 +218,11 @@ class PollPersistenceLimiter:
 class AutoPollIntervalController:
     """Select a safe global watcher interval from live full-profile poll evidence.
 
-    Auto mode deliberately reuses the same staged benchmark criteria as the CLI.
-    It starts at the slowest configured benchmark stage, collects a complete sample
-    window for every currently-present controller, and only then tries the next
-    faster stage. If a stage fails it locks to the last passing stage. If the first
-    stage fails, the configured conservative fallback is used.
+    Auto mode starts from a conservative baseline, then reuses the same staged
+    benchmark criteria as the CLI to move toward faster configured intervals.
+    Every currently-present controller must complete and pass each stage before
+    the watcher advances. A failed faster stage locks the watcher to the last
+    proven-safe interval.
     """
 
     def __init__(
@@ -233,14 +233,16 @@ class AutoPollIntervalController:
         thresholds: BenchmarkThresholds,
         fallback_interval_seconds: float,
     ) -> None:
-        intervals = tuple(sorted({float(value) for value in intervals_seconds}, reverse=True))
-        if not intervals:
+        benchmark_intervals = {float(value) for value in intervals_seconds}
+        if not benchmark_intervals:
             raise ValueError("auto polling requires at least one interval")
         if samples_per_interval < 3:
             raise ValueError("auto polling requires at least three samples per interval")
-        if fallback_interval_seconds < intervals[0]:
+        if fallback_interval_seconds < max(benchmark_intervals):
             raise ValueError("auto polling fallback must be at least as slow as the first interval")
-        self.intervals_seconds = intervals
+        self.intervals_seconds = tuple(
+            sorted({*benchmark_intervals, float(fallback_interval_seconds)}, reverse=True)
+        )
         self.samples_per_interval = samples_per_interval
         self.thresholds = thresholds
         self.fallback_interval_seconds = float(fallback_interval_seconds)
