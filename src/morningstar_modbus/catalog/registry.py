@@ -1,4 +1,3 @@
-# src/morningstar_modbus/catalog/registry.py
 """Morningstar profile registry and conservative read-only device detection."""
 
 from __future__ import annotations
@@ -19,6 +18,7 @@ from morningstar_modbus.catalog.families.tristar_mppt_600v import TRISTAR_MPPT_6
 from morningstar_modbus.catalog.families.tristar_pwm import TRISTAR_PWM
 from morningstar_modbus.catalog.profile import CatalogProfile
 from morningstar_modbus.catalog.types import DeviceProfileSpec, RegisterBlock
+from morningstar_modbus.catalog.verification import verification_for
 from morningstar_modbus.models import DeviceIdentification
 from morningstar_modbus.transport import ReadOnlyModbusClient
 
@@ -98,13 +98,9 @@ async def detect_profile(
     if selected.name != "generic":
         return selected
 
-    # Never fingerprint a device that explicitly identifies as another vendor. Fingerprints are
-    # reserved for Morningstar devices with incomplete identity strings and legacy devices that
-    # provide no Device Identification response at all.
     if _is_explicit_non_morningstar_vendor(identity.vendor_name):
         return selected
 
-    # SureSine Gen2 has a distinctive ratings block at 0x0003.
     try:
         words = await client.read_holding_registers(0x0003, 4)
         rated_w = words[0] * 0.1
@@ -121,7 +117,6 @@ async def detect_profile(
     except Exception:
         pass
 
-    # SureSine Classic exposes output volts/frequency as adjacent integer registers.
     try:
         volts, frequency = await client.read_holding_registers(0x000D, 2)
         if 90 <= volts <= 260 and 45 <= frequency <= 65:
@@ -129,7 +124,6 @@ async def detect_profile(
     except Exception:
         pass
 
-    # SunSaver Duo control/status lives in the otherwise unusual 0x0106 range.
     try:
         words = await client.read_holding_registers(0x0106, 6)
         if words[2] in {1, 3, 4} and words[4] <= 0x00FF:
@@ -137,7 +131,6 @@ async def detect_profile(
     except Exception:
         pass
 
-    # TriStar PWM exposes control mode + state at 0x001A/0x001B.
     try:
         mode, state = await client.read_holding_registers(0x001A, 2)
         if mode in {0, 1, 2, 3} and 0 <= state <= 8:
@@ -148,10 +141,16 @@ async def detect_profile(
     return selected
 
 
+def _catalog_payload(spec: DeviceProfileSpec, *, include_registers: bool) -> dict[str, object]:
+    payload = spec.to_dict(include_registers=include_registers)
+    payload["verification"] = verification_for(spec.name).to_dict()
+    return payload
+
+
 def catalog_summary() -> list[dict[str, object]]:
-    return [spec.to_dict(include_registers=False) for spec in PROFILES]
+    return [_catalog_payload(spec, include_registers=False) for spec in PROFILES]
 
 
 def catalog_detail(name: str) -> dict[str, object] | None:
     spec = PROFILE_BY_NAME.get(name)
-    return spec.to_dict(include_registers=True) if spec is not None else None
+    return _catalog_payload(spec, include_registers=True) if spec is not None else None

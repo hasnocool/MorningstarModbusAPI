@@ -1,4 +1,3 @@
-# src/morningstar_modbus/watcher.py
 """Continuous discovery and firmware-aware catalog polling runtime."""
 
 from __future__ import annotations
@@ -11,6 +10,7 @@ from morningstar_modbus.catalog import CatalogProfile, get_profile
 from morningstar_modbus.config import AppConfig
 from morningstar_modbus.discovery import discover
 from morningstar_modbus.intelligence import DeviceIntelligence, refresh_intelligence
+from morningstar_modbus.lifecycle import DeviceLifecycle
 from morningstar_modbus.models import DiscoveredDevice, PollResult
 from morningstar_modbus.storage import TelemetryStore
 from morningstar_modbus.transport import AsyncModbusRtuClient, AsyncModbusTcpClient, ReadOnlyModbusClient
@@ -27,6 +27,8 @@ class Watcher:
         self._clients: dict[str, ReadOnlyModbusClient] = {}
         self._profiles: dict[str, CatalogProfile] = {}
         self._intelligence: dict[str, DeviceIntelligence] = {}
+        self._lifecycles: dict[str, DeviceLifecycle] = {}
+        self._present_keys: set[str] = set()
         self._stopping = asyncio.Event()
 
     async def stop(self) -> None:
@@ -58,11 +60,23 @@ class Watcher:
 
     async def _refresh_devices(self) -> None:
         found = await discover(self.config)
+        found_keys = {device.endpoint.stable_key for device in found}
+        missing = self._present_keys - found_keys
+        for key in missing:
+            lifecycle = self._lifecycles.setdefault(key, DeviceLifecycle())
+            lifecycle.mark_missing()
+            client = self._clients.pop(key, None)
+            if client is not None:
+                await client.close()
+            LOGGER.info("device missing key=%s lifecycle=%s", key, lifecycle.to_dict())
+
         for device in found:
             key = device.endpoint.stable_key
             previous = self._devices.get(key)
             endpoint_moved = previous is not None and previous.endpoint != device.endpoint
             profile_changed = previous is not None and previous.profile != device.profile
+            lifecycle = self._lifecycles.setdefault(key, DeviceLifecycle())
+            lifecycle.mark_discovered(endpoint_changed=endpoint_moved)
             if endpoint_moved:
                 client = self._clients.pop(key, None)
                 if client is not None:
@@ -79,15 +93,19 @@ class Watcher:
                 self._intelligence[key] = device.intelligence
             self._devices[key] = device
             self._device_ids[key] = await self.store.upsert_device(device)
+        self._present_keys = found_keys
         if found:
             LOGGER.info("discovered %d Modbus endpoint(s)", len(found))
 
     async def _poll_all(self) -> None:
-        if not self._devices:
+        if not self._present_keys:
             return
         async with asyncio.TaskGroup() as group:
-            for key, device in tuple(self._devices.items()):
-                group.create_task(self._poll_one(key, device))
+            for key in tuple(self._present_keys):
+                device = self._devices.get(key)
+                lifecycle = self._lifecycles.setdefault(key, DeviceLifecycle())
+                if device is not None and lifecycle.can_poll():
+                    group.create_task(self._poll_one(key, device))
 
     def _create_client(self, device: DiscoveredDevice) -> ReadOnlyModbusClient:
         endpoint = device.endpoint
@@ -124,6 +142,8 @@ class Watcher:
         device_id = self._device_ids.get(key)
         if device_id is None:
             return
+        lifecycle = self._lifecycles.setdefault(key, DeviceLifecycle())
+        lifecycle.mark_connecting()
         client = self._client(key, device)
         profile = self._profile(key, device)
         intelligence = self._intelligence.get(key)
@@ -134,6 +154,7 @@ class Watcher:
                 firmware=intelligence.firmware if intelligence is not None else "",
             )
             latency_ms = (time.perf_counter() - started) * 1000.0
+            lifecycle.mark_success()
             await self.store.save_poll(
                 device_id,
                 PollResult(device.endpoint, device.identification, profile.name, latency_ms, values),
@@ -147,5 +168,18 @@ class Watcher:
                 self._intelligence[key] = intelligence
                 await self.store.save_device_intelligence(device_id, intelligence)
         except Exception as exc:
-            LOGGER.warning("poll failed endpoint=%s error=%s", device.endpoint.locator, exc)
+            lifecycle.mark_failure(
+                threshold=self.config.watch.failure_threshold,
+                initial_backoff=self.config.watch.retry_backoff_initial_seconds,
+                max_backoff=self.config.watch.retry_backoff_max_seconds,
+            )
+            client = self._clients.pop(key, None)
+            if client is not None:
+                await client.close()
+            LOGGER.warning(
+                "poll failed endpoint=%s error=%s lifecycle=%s",
+                device.endpoint.locator,
+                exc,
+                lifecycle.to_dict(),
+            )
             await self.store.save_error(device_id, f"{type(exc).__name__}: {exc}")

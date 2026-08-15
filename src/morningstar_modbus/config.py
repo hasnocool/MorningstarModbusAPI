@@ -1,4 +1,3 @@
-# src/morningstar_modbus/config.py
 """TOML configuration loader."""
 
 from __future__ import annotations
@@ -21,6 +20,9 @@ class WatchConfig:
     request_timeout_seconds: float = 1.5
     unit_ids: list[int] = field(default_factory=lambda: [1])
     max_tcp_concurrency: int = 32
+    failure_threshold: int = 3
+    retry_backoff_initial_seconds: float = 2.0
+    retry_backoff_max_seconds: float = 60.0
 
 
 @dataclass(slots=True)
@@ -76,6 +78,12 @@ def _validate(config: AppConfig) -> None:
         raise ValueError("unit_ids must be within 1..247")
     if not 1 <= config.watch.max_tcp_concurrency <= 256:
         raise ValueError("max_tcp_concurrency must be within 1..256")
+    if config.watch.failure_threshold < 1:
+        raise ValueError("failure_threshold must be positive")
+    if config.watch.retry_backoff_initial_seconds <= 0:
+        raise ValueError("retry_backoff_initial_seconds must be positive")
+    if config.watch.retry_backoff_max_seconds < config.watch.retry_backoff_initial_seconds:
+        raise ValueError("retry_backoff_max_seconds must be >= retry_backoff_initial_seconds")
     for subnet in config.tcp.subnets:
         network = ipaddress.ip_network(subnet, strict=False)
         if network.num_addresses > 4096:

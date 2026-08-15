@@ -1,4 +1,3 @@
-# src/morningstar_modbus/models.py
 """Shared immutable data models."""
 
 from __future__ import annotations
@@ -82,3 +81,25 @@ class PollResult:
     profile: str
     latency_ms: float
     values: tuple[RegisterValue, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ModbusExchange:
+    """One read-only Modbus request/response exchange captured at the transport boundary."""
+
+    timestamp: str
+    transport: TransportName
+    unit_id: int
+    function_code: int
+    address: int | None
+    count: int | None
+    request_hex: str
+    response_hex: str
+    request_pdu_hex: str
+    response_pdu_hex: str
+    latency_ms: float
+    error_type: str = ""
+    error: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)

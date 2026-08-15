@@ -1,0 +1,26 @@
+{
+  "created_at": "2026-08-14T00:00:00+00:00",
+  "endpoint": {
+    "baudrate": null,
+    "port": 502,
+    "stop_bits": null,
+    "target": "replay",
+    "transport": "tcp",
+    "unit_id": 1,
+    "usb_pid": null,
+    "usb_serial": null,
+    "usb_vid": null
+  },
+  "family": "TriStar MPPT 150V",
+  "firmware": "29",
+  "hardware_revision": "2",
+  "model": "TS-MPPT-60",
+  "privacy": {
+    "raw_transactions_may_contain_device_identifiers": true,
+    "structured_identifiers_included": false
+  },
+  "profile": "tristar_mppt",
+  "provenance": "synthetic-spec-derived",
+  "schema_version": 1,
+  "transaction_count": 9
+}
