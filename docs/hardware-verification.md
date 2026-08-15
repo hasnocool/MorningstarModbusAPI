@@ -55,7 +55,7 @@ capture/
 └── expected.json
 ```
 
-Each transaction can preserve:
+Each transaction record preserves:
 
 - UTC timestamp;
 - transport and unit ID;
@@ -63,11 +63,10 @@ Each transaction can preserve:
 - requested address/count where applicable;
 - raw request and response bytes;
 - request/response PDU bytes;
-- decoded register words;
 - latency;
 - exception/error information when an operation fails.
 
-TCP captures preserve the MBAP header and PDU. Successful RTU captures preserve the complete request/response ADUs including CRC.
+Decoded register values are stored separately in `registers.json`; they are not duplicated into each `transactions.jsonl` record. TCP captures preserve the MBAP header and PDU. Successful RTU captures preserve the complete request/response ADUs including CRC.
 
 ## Identifier and publication safety
 
@@ -111,7 +110,9 @@ morningstar-modbus verify \
   --capture captures/verified-ts-mppt-60
 ```
 
-`verify` uses the same resolver/profile logic as normal operation. The report includes identity/profile selection, model/firmware/hardware revision, catalog revision, required/optional block availability, named-register coverage, plausibility validation, catalog verification evidence, and a final result.
+`verify` uses the same resolver/profile logic as normal operation. The report includes the selected profile/family, model, firmware and hardware revision, transport and unit ID, intelligence status and confidence, required/runtime/metadata/optional block availability, named-register coverage, and a final result. JSON output also includes the collected warning messages. The current report does not embed catalog revision or the separate catalog verification-evidence record; those remain available through the catalog/intelligence surfaces rather than the `verify` report itself.
+
+The human-readable renderer currently focuses on identity, confidence, block/register coverage, and the final result; use `--json` when warning messages are needed programmatically.
 
 The command returns exit status `0` for a `verified` result and `2` for a non-verified result, making it usable in scripts or hardware-in-the-loop checks.
 
