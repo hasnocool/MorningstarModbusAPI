@@ -74,15 +74,15 @@ TCP captures preserve full request/response frames including MBAP data and PDU b
 
 ## Identifier and publication safety
 
-Structured endpoint and serial identifiers are redacted by default. Without `--include-identifiers`, the manifest target is replaced with `<redacted>`, USB serial metadata is removed, Device Identification raw objects/PDU are cleared, and named serial register values are redacted.
+Structured endpoint and serial identifiers are redacted by default. Without `--include-identifiers`, the manifest target is replaced with `<redacted>`, USB serial metadata is removed, Device Identification raw objects/PDU are cleared, and named serial register values have their decoded `value` redacted.
 
-That structured redaction does **not** rewrite `transactions.jsonl`. Raw protocol frames can still contain serial numbers or other identifiers.
+That structured redaction does **not** rewrite `transactions.jsonl`, and it does not remove raw register words from `registers.json`. Raw protocol frames, raw named-register words, or accompanying raw per-address register entries can therefore still contain serial numbers or other identifiers.
 
 Before publishing a physical capture:
 
 1. confirm the device model and firmware used for the recording;
 2. inspect `manifest.json` and `identification.json`;
-3. inspect raw transaction frames for embedded identifiers;
+3. inspect both `transactions.jsonl` and `registers.json` for embedded identifiers, including raw register words;
 4. preserve enough protocol bytes for faithful replay while removing information that should not be public;
 5. replay the sanitized bundle again;
 6. document what was sanitized;
@@ -129,7 +129,7 @@ morningstar-modbus verify \
 - final result;
 - warnings in JSON output.
 
-The current report does **not** embed catalog revision or the independent catalog verification-evidence object. Those are available through `/v1/catalog`, `/v1/catalog/{profile_name}`, and persisted device intelligence where applicable.
+The current report does **not** embed catalog revision or the independent catalog verification-evidence object. The catalog revision is persisted with device intelligence where applicable, while the independent verification-evidence object is available through `/v1/catalog` and `/v1/catalog/{profile_name}` rather than `/v1/devices/intelligence`.
 
 The human-readable renderer focuses on identity, confidence, block/register coverage, and the final result. Use `--json` when warning messages are needed programmatically.
 
@@ -220,7 +220,7 @@ discovered → connecting → online → degraded → offline → rediscovering 
 - `retry_in_seconds`;
 - an internal monotonic next-retry deadline used by `can_poll()`.
 
-Repeated failures use exponential backoff. A failed client is closed so the next eligible poll creates a fresh connection. A device absent from the latest discovery result enters `rediscovering`, its client is closed, and it is not polled until rediscovered.
+Repeated failures use exponential backoff. A failed client is closed so the next eligible poll creates a fresh connection. A device absent from the latest discovery result enters `rediscovering` unless it is already `offline`; an already-offline device remains `offline`. In either case its client is closed and it is not polled until rediscovered or otherwise eligible again.
 
 ```toml
 [watch]
