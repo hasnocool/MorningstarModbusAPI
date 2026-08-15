@@ -31,6 +31,21 @@ hosts = []
 # Networks larger than /20 are rejected to prevent accidental broad scanning.
 subnets = []
 
+[backfill]
+# TS-MPPT-60/45 Ethernet controllers expose retained daily history through
+# their built-in LiveView datalog page. Backfill runs after live polling succeeds
+# so a slow or unavailable web page never delays normal telemetry acquisition.
+enabled = true
+on_startup = true
+on_reconnect = true
+max_days = 200
+# Use an IANA zone such as "America/Vancouver" when exact DST-aware day boundaries matter.
+calendar_timezone = "local"
+http_port = 80
+http_path = "/datalog.html"
+timeout_seconds = 3.0
+max_response_bytes = 1048576
+
 [api]
 host = "127.0.0.1"
 port = 8080
