@@ -28,6 +28,7 @@ from morningstar_modbus.history import (
     validate_resolution,
 )
 from morningstar_modbus.intelligence import effective_register_map
+from morningstar_modbus.polling_storage import PollingPerformanceStore
 from morningstar_modbus.storage import TelemetryStore
 
 LOGGER = logging.getLogger(__name__)
@@ -62,13 +63,24 @@ def _daily_range(start: str | None, end: str | None) -> tuple[str | None, str | 
     return normalized_start, normalized_end
 
 
+def _polling_mode(value: str) -> str | None:
+    normalized = value.strip().lower()
+    if normalized == "all":
+        return None
+    if normalized not in {"watch", "benchmark"}:
+        raise HTTPException(status_code=400, detail="mode must be watch, benchmark, or all")
+    return normalized
+
+
 def create_app(store: TelemetryStore) -> FastAPI:
     controller_history = ControllerHistoryRepository(store.path)
+    performance_store = PollingPerformanceStore(store.path)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         await store.initialize()
         await controller_history.initialize()
+        await performance_store.initialize()
         yield
 
     app = FastAPI(
@@ -289,6 +301,30 @@ def create_app(store: TelemetryStore) -> FastAPI:
             stream,
             media_type=media_type,
             headers={"Content-Disposition": f'attachment; filename="telemetry-history.{suffix}"'},
+        )
+
+    @app.get("/v1/devices/polling/performance")
+    async def polling_performance(
+        device_id: str = Query(...),
+        window: int = Query(300, ge=3, le=5000),
+        mode: str = Query("watch"),
+    ) -> dict[str, object]:
+        return await performance_store.summary(
+            device_id,
+            window=window,
+            mode=_polling_mode(mode),
+        )
+
+    @app.get("/v1/devices/polling/history")
+    async def polling_history(
+        device_id: str = Query(...),
+        limit: int = Query(300, ge=1, le=5000),
+        mode: str = Query("watch"),
+    ) -> list[dict[str, object]]:
+        return await performance_store.recent(
+            device_id,
+            limit=limit,
+            mode=_polling_mode(mode),
         )
 
     @app.get("/v1/devices/{device_id:path}")

@@ -26,6 +26,18 @@ class WatchConfig:
 
 
 @dataclass(slots=True)
+class PollBenchmarkConfig:
+    intervals_seconds: list[float] = field(default_factory=lambda: [1.0, 0.5, 0.25])
+    samples_per_interval: int = 12
+    min_success_rate: float = 0.98
+    max_p95_interval_ratio: float = 0.80
+    max_deadline_miss_rate: float = 0.05
+    max_request_failure_rate: float = 0.02
+    max_bus_utilization_percent: float = 70.0
+    minimum_interval_seconds: float = 0.25
+
+
+@dataclass(slots=True)
 class SerialConfig:
     enabled: bool = True
     baudrate: int = 9600
@@ -64,6 +76,7 @@ class ApiConfig:
 class AppConfig:
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     watch: WatchConfig = field(default_factory=WatchConfig)
+    poll_benchmark: PollBenchmarkConfig = field(default_factory=PollBenchmarkConfig)
     serial: SerialConfig = field(default_factory=SerialConfig)
     tcp: TcpConfig = field(default_factory=TcpConfig)
     backfill: HistoryBackfillConfig = field(default_factory=HistoryBackfillConfig)
@@ -77,6 +90,7 @@ def load_config(path: str | None) -> AppConfig:
     config = AppConfig(
         database=DatabaseConfig(**payload.get("database", {})),
         watch=WatchConfig(**payload.get("watch", {})),
+        poll_benchmark=PollBenchmarkConfig(**payload.get("poll_benchmark", {})),
         serial=SerialConfig(**payload.get("serial", {})),
         tcp=TcpConfig(**payload.get("tcp", {})),
         backfill=HistoryBackfillConfig(**payload.get("backfill", {})),
@@ -115,6 +129,27 @@ def _validate(config: AppConfig) -> None:
         raise ValueError("backfill.timeout_seconds must be positive")
     if not 16_384 <= config.backfill.max_response_bytes <= 8_388_608:
         raise ValueError("backfill.max_response_bytes must be between 16 KiB and 8 MiB")
+
+    benchmark = config.poll_benchmark
+    if benchmark.minimum_interval_seconds <= 0:
+        raise ValueError("poll_benchmark.minimum_interval_seconds must be positive")
+    if not benchmark.intervals_seconds:
+        raise ValueError("poll_benchmark.intervals_seconds must not be empty")
+    if any(interval < benchmark.minimum_interval_seconds for interval in benchmark.intervals_seconds):
+        raise ValueError("poll benchmark interval is below minimum_interval_seconds")
+    if benchmark.samples_per_interval < 3:
+        raise ValueError("poll_benchmark.samples_per_interval must be >= 3")
+    for name, value in (
+        ("min_success_rate", benchmark.min_success_rate),
+        ("max_p95_interval_ratio", benchmark.max_p95_interval_ratio),
+        ("max_deadline_miss_rate", benchmark.max_deadline_miss_rate),
+        ("max_request_failure_rate", benchmark.max_request_failure_rate),
+    ):
+        if not 0.0 <= value <= 1.0:
+            raise ValueError(f"poll_benchmark.{name} must be within 0..1")
+    if not 0.0 < benchmark.max_bus_utilization_percent <= 100.0:
+        raise ValueError("poll_benchmark.max_bus_utilization_percent must be within 0..100")
+
     for subnet in config.tcp.subnets:
         network = ipaddress.ip_network(subnet, strict=False)
         if network.num_addresses > 4096:

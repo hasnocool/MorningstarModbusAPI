@@ -13,6 +13,8 @@ from morningstar_modbus.discovery import discover
 from morningstar_modbus.intelligence import DeviceIntelligence, refresh_intelligence
 from morningstar_modbus.lifecycle import DeviceLifecycle
 from morningstar_modbus.models import DiscoveredDevice, PollResult
+from morningstar_modbus.polling import PollTrafficTracker
+from morningstar_modbus.polling_storage import PollingPerformanceStore
 from morningstar_modbus.storage import TelemetryStore
 from morningstar_modbus.transport import AsyncModbusRtuClient, AsyncModbusTcpClient, ReadOnlyModbusClient
 
@@ -23,12 +25,14 @@ class Watcher:
     def __init__(self, config: AppConfig, store: TelemetryStore) -> None:
         self.config = config
         self.store = store
+        self.performance_store = PollingPerformanceStore(store.path)
         self._devices: dict[str, DiscoveredDevice] = {}
         self._device_ids: dict[str, str] = {}
         self._clients: dict[str, ReadOnlyModbusClient] = {}
         self._profiles: dict[str, CatalogProfile] = {}
         self._intelligence: dict[str, DeviceIntelligence] = {}
         self._lifecycles: dict[str, DeviceLifecycle] = {}
+        self._traffic: dict[str, PollTrafficTracker] = {}
         self._present_keys: set[str] = set()
         self._history_backfiller = ControllerHistoryBackfiller(store.path, config.backfill)
         self._history_tasks: dict[str, asyncio.Task[None]] = {}
@@ -45,6 +49,7 @@ class Watcher:
         self._clients.clear()
         self._profiles.clear()
         self._intelligence.clear()
+        self._traffic.clear()
         if history_tasks:
             await asyncio.gather(*history_tasks, return_exceptions=True)
         if clients:
@@ -52,6 +57,7 @@ class Watcher:
 
     async def run(self) -> None:
         await self._history_backfiller.initialize()
+        await self.performance_store.initialize()
         next_discovery = 0.0
         try:
             while not self._stopping.is_set():
@@ -59,11 +65,12 @@ class Watcher:
                 if now >= next_discovery:
                     await self._refresh_devices()
                     next_discovery = now + self.config.watch.discovery_interval_seconds
+                cycle_started = time.monotonic()
                 await self._poll_all()
+                cycle_elapsed = time.monotonic() - cycle_started
+                sleep_seconds = max(0.0, self.config.watch.poll_interval_seconds - cycle_elapsed)
                 try:
-                    await asyncio.wait_for(
-                        self._stopping.wait(), timeout=self.config.watch.poll_interval_seconds
-                    )
+                    await asyncio.wait_for(self._stopping.wait(), timeout=sleep_seconds)
                 except TimeoutError:
                     pass
         finally:
@@ -92,6 +99,7 @@ class Watcher:
                 client = self._clients.pop(key, None)
                 if client is not None:
                     await client.close()
+                self._traffic.pop(key, None)
                 LOGGER.info(
                     "endpoint moved key=%s old=%s new=%s",
                     key,
@@ -118,14 +126,30 @@ class Watcher:
                 if device is not None and lifecycle.can_poll():
                     group.create_task(self._poll_one(key, device))
 
-    def _create_client(self, device: DiscoveredDevice) -> ReadOnlyModbusClient:
+    def _tracker(self, key: str, device: DiscoveredDevice) -> PollTrafficTracker:
+        tracker = self._traffic.get(key)
+        if tracker is None:
+            endpoint = device.endpoint
+            tracker = PollTrafficTracker(
+                endpoint.transport,
+                baudrate=(endpoint.baudrate or self.config.serial.baudrate)
+                if endpoint.transport == "serial"
+                else None,
+                stop_bits=endpoint.stop_bits or self.config.serial.stop_bits,
+            )
+            self._traffic[key] = tracker
+        return tracker
+
+    def _create_client(self, key: str, device: DiscoveredDevice) -> ReadOnlyModbusClient:
         endpoint = device.endpoint
+        observer = self._tracker(key, device).record
         if endpoint.transport == "tcp":
             return AsyncModbusTcpClient(
                 endpoint.target,
                 port=endpoint.port or 502,
                 unit_id=endpoint.unit_id,
                 timeout=self.config.watch.request_timeout_seconds,
+                observer=observer,
             )
         return AsyncModbusRtuClient(
             endpoint.target,
@@ -133,12 +157,13 @@ class Watcher:
             stop_bits=endpoint.stop_bits or self.config.serial.stop_bits,
             unit_id=endpoint.unit_id,
             timeout=self.config.watch.request_timeout_seconds,
+            observer=observer,
         )
 
     def _client(self, key: str, device: DiscoveredDevice) -> ReadOnlyModbusClient:
         client = self._clients.get(key)
         if client is None:
-            client = self._create_client(device)
+            client = self._create_client(key, device)
             self._clients[key] = client
         return client
 
@@ -212,6 +237,8 @@ class Watcher:
         lifecycle = self._lifecycles.setdefault(key, DeviceLifecycle())
         reconnected = bool(lifecycle.offline_since or lifecycle.consecutive_failures)
         lifecycle.mark_connecting()
+        tracker = self._tracker(key, device)
+        tracker.begin()
         client = self._client(key, device)
         profile = self._profile(key, device)
         intelligence = self._intelligence.get(key)
@@ -223,10 +250,24 @@ class Watcher:
             )
             latency_ms = (time.perf_counter() - started) * 1000.0
             lifecycle.mark_success()
-            await self.store.save_poll(
+            sample_id = await self.store.save_poll(
                 device_id,
                 PollResult(device.endpoint, device.identification, profile.name, latency_ms, values),
             )
+            performance = tracker.finish(
+                configured_interval_seconds=self.config.watch.poll_interval_seconds,
+                poll_latency_ms=latency_ms,
+                success=True,
+            )
+            try:
+                await self.performance_store.save(
+                    device_id,
+                    performance,
+                    sample_id=sample_id,
+                    mode="watch",
+                )
+            except Exception:
+                LOGGER.exception("failed to persist poll-performance telemetry device=%s", device_id)
             if intelligence is not None:
                 intelligence = refresh_intelligence(
                     intelligence,
@@ -242,6 +283,17 @@ class Watcher:
                 reconnected=reconnected,
             )
         except Exception as exc:
+            latency_ms = (time.perf_counter() - started) * 1000.0
+            performance = tracker.finish(
+                configured_interval_seconds=self.config.watch.poll_interval_seconds,
+                poll_latency_ms=latency_ms,
+                success=False,
+                error=f"{type(exc).__name__}: {exc}",
+            )
+            try:
+                await self.performance_store.save(device_id, performance, mode="watch")
+            except Exception:
+                LOGGER.exception("failed to persist poll-performance telemetry device=%s", device_id)
             lifecycle.mark_failure(
                 threshold=self.config.watch.failure_threshold,
                 initial_backoff=self.config.watch.retry_backoff_initial_seconds,

@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import signal
+import time
 from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
@@ -20,7 +21,19 @@ from morningstar_modbus.config import AppConfig, load_config
 from morningstar_modbus.discovery import discover
 from morningstar_modbus.intelligence import refresh_intelligence, resolve_device_intelligence
 from morningstar_modbus.intelligence.models import DeviceIntelligence
-from morningstar_modbus.models import DeviceIdentification, Endpoint, ModbusExchange
+from morningstar_modbus.models import (
+    DeviceIdentification,
+    DiscoveredDevice,
+    Endpoint,
+    ModbusExchange,
+)
+from morningstar_modbus.polling import (
+    BenchmarkThresholds,
+    PollTrafficTracker,
+    build_benchmark_report,
+    evaluate_benchmark_stage,
+)
+from morningstar_modbus.polling_storage import PollingPerformanceStore
 from morningstar_modbus.replay import ReplayModbusClient
 from morningstar_modbus.storage import TelemetryStore
 from morningstar_modbus.transport import AsyncModbusRtuClient, AsyncModbusTcpClient, ReadOnlyModbusClient
@@ -92,6 +105,30 @@ def build_parser() -> argparse.ArgumentParser:
     )
     replay.add_argument("bundle", help="Capture bundle directory")
     replay.add_argument("--json", action="store_true")
+
+    benchmark = sub.add_parser(
+        "benchmark-polling",
+        help="Measure safe full-profile polling intervals without Modbus writes",
+    )
+    _endpoint_arguments(benchmark)
+    benchmark.add_argument(
+        "--interval",
+        dest="intervals",
+        action="append",
+        type=float,
+        help="Interval in seconds; repeat to override configured benchmark stages",
+    )
+    benchmark.add_argument(
+        "--samples",
+        type=int,
+        help="Samples per interval; defaults to [poll_benchmark].samples_per_interval",
+    )
+    benchmark.add_argument("--json", action="store_true", help="Emit JSON report")
+    benchmark.add_argument(
+        "--no-persist",
+        action="store_true",
+        help="Do not save benchmark performance samples to the configured database",
+    )
 
     sub.add_parser("watch", help="Continuously discover, poll, and persist devices")
     sub.add_parser("serve", help="Serve the database over HTTP without polling")
@@ -276,6 +313,128 @@ async def _replay(args: argparse.Namespace) -> int:
         await client.close()
 
 
+def _benchmark_intervals(config: AppConfig, args: argparse.Namespace) -> list[float]:
+    intervals = args.intervals or config.poll_benchmark.intervals_seconds
+    minimum = config.poll_benchmark.minimum_interval_seconds
+    if not intervals:
+        raise ValueError("at least one benchmark interval is required")
+    if any(interval < minimum for interval in intervals):
+        raise ValueError(f"benchmark intervals must be >= {minimum:g} seconds")
+    return sorted(set(intervals), reverse=True)
+
+
+def _render_benchmark(report: dict[str, object]) -> str:
+    lines = [
+        "Polling benchmark",
+        f"profile: {report['profile']}",
+        f"transport: {report['transport']}",
+    ]
+    for raw_stage in report["stages"]:
+        stage = dict(raw_stage)
+        summary = dict(stage["summary"])
+        status = "PASS" if stage["passed"] else "STOP"
+        p95 = summary.get("poll_latency_p95_ms")
+        bus = summary.get("bus_utilization_max_percent")
+        lines.append(
+            f"{float(stage['interval_seconds']):.3f}s {status} "
+            f"success={float(summary['success_rate']) * 100:.1f}% "
+            f"p95={float(p95):.1f}ms " if p95 is not None else ""
+        )
+        if bus is not None:
+            lines[-1] += f"bus_max={float(bus):.1f}%"
+        reasons = stage.get("reasons", [])
+        for reason in reasons:
+            lines.append(f"  - {reason}")
+    recommended = report.get("recommended_interval_seconds")
+    lines.append(
+        "recommended interval: "
+        + (f"{float(recommended):.3f}s" if recommended is not None else "none from tested stages")
+    )
+    return "\n".join(lines)
+
+
+async def _benchmark_polling(config: AppConfig, args: argparse.Namespace) -> int:
+    endpoint = _endpoint_from_args(args)
+    tracker = PollTrafficTracker(
+        endpoint.transport,
+        baudrate=(endpoint.baudrate or config.serial.baudrate)
+        if endpoint.transport == "serial"
+        else None,
+        stop_bits=endpoint.stop_bits or config.serial.stop_bits,
+    )
+    client = _client_for_endpoint(config, endpoint, observer=tracker.record)
+    performance_store: PollingPerformanceStore | None = None
+    device_id: str | None = None
+    try:
+        try:
+            identification = await client.read_device_identification()
+        except Exception:
+            identification = DeviceIdentification()
+        intelligence = await resolve_device_intelligence(client, identification, endpoint=endpoint)
+        profile = get_profile(intelligence.profile)
+        await profile.poll(client, firmware=intelligence.firmware)  # warm-up, not measured
+
+        if not args.no_persist:
+            store = TelemetryStore(config.database.path)
+            await store.initialize()
+            device = DiscoveredDevice(endpoint, identification, 0.0, profile.name, intelligence)
+            device_id = await store.upsert_device(device)
+            performance_store = PollingPerformanceStore(config.database.path)
+            await performance_store.initialize()
+
+        benchmark = config.poll_benchmark
+        thresholds = BenchmarkThresholds(
+            min_success_rate=benchmark.min_success_rate,
+            max_p95_interval_ratio=benchmark.max_p95_interval_ratio,
+            max_deadline_miss_rate=benchmark.max_deadline_miss_rate,
+            max_request_failure_rate=benchmark.max_request_failure_rate,
+            max_bus_utilization_percent=benchmark.max_bus_utilization_percent,
+        )
+        samples_per_interval = args.samples or benchmark.samples_per_interval
+        if samples_per_interval < 3:
+            raise ValueError("--samples must be >= 3")
+
+        stages = []
+        for interval in _benchmark_intervals(config, args):
+            samples = []
+            for _ in range(samples_per_interval):
+                tracker.begin()
+                started = time.perf_counter()
+                success = True
+                error = ""
+                try:
+                    await profile.poll(client, firmware=intelligence.firmware)
+                except Exception as exc:
+                    success = False
+                    error = f"{type(exc).__name__}: {exc}"
+                latency_ms = (time.perf_counter() - started) * 1000.0
+                sample = tracker.finish(
+                    configured_interval_seconds=interval,
+                    poll_latency_ms=latency_ms,
+                    success=success,
+                    error=error,
+                )
+                samples.append(sample)
+                if performance_store is not None and device_id is not None:
+                    await performance_store.save(device_id, sample, mode="benchmark")
+                elapsed = time.perf_counter() - started
+                await asyncio.sleep(max(0.0, interval - elapsed))
+            stage = evaluate_benchmark_stage(interval, samples, thresholds)
+            stages.append(stage)
+            if not stage.passed:
+                break
+
+        report = build_benchmark_report(
+            profile=profile.name,
+            transport=endpoint.transport,
+            stages=stages,
+        ).to_dict()
+        print(json.dumps(report, indent=2) if args.json else _render_benchmark(report))
+        return 0 if report["recommended_interval_seconds"] is not None else 2
+    finally:
+        await client.close()
+
+
 async def _watch(config: AppConfig) -> int:
     store = TelemetryStore(config.database.path)
     await store.initialize()
@@ -347,6 +506,8 @@ async def async_main(args: argparse.Namespace, config: AppConfig) -> int:
         return await _verify(config, args)
     if args.command == "replay":
         return await _replay(args)
+    if args.command == "benchmark-polling":
+        return await _benchmark_polling(config, args)
     if args.command == "watch":
         return await _watch(config)
     if args.command == "serve":
