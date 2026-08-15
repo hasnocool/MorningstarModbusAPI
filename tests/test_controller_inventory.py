@@ -138,6 +138,35 @@ async def test_ambiguous_identical_controllers_without_serial_are_not_merged(tmp
 
 
 @pytest.mark.asyncio
+async def test_serialless_endpoint_is_not_guessed_into_identified_controller(tmp_path) -> None:
+    path = str(tmp_path / "telemetry.db")
+    await TelemetryStore(path).initialize()
+    now = datetime.now(UTC)
+    await _insert_endpoint(
+        path,
+        device_id="serial:/dev/ttyUSB0:unit:1",
+        target="/dev/ttyUSB0",
+        last_seen=(now - timedelta(minutes=1)).isoformat(),
+        serial_number="TS123456",
+    )
+    await _insert_endpoint(
+        path,
+        device_id="serial:/dev/ttyUSB1:unit:1",
+        target="/dev/ttyUSB1",
+        last_seen=now.isoformat(),
+        serial_number="",
+    )
+
+    controllers = await ControllerInventoryRepository(path).list_controllers()
+
+    assert len(controllers) == 2
+    assert {controller["identity_source"] for controller in controllers} == {
+        "controller_serial",
+        "endpoint",
+    }
+
+
+@pytest.mark.asyncio
 async def test_offline_lifecycle_updates_persisted_endpoint_status(tmp_path) -> None:
     path = str(tmp_path / "telemetry.db")
     await TelemetryStore(path).initialize()
@@ -147,6 +176,7 @@ async def test_offline_lifecycle_updates_persisted_endpoint_status(tmp_path) -> 
         device_id=device_id,
         target="/dev/ttyUSB0",
         last_seen=datetime.now(UTC).isoformat(),
+        status="error",
     )
     repository = ControllerInventoryRepository(path)
 
