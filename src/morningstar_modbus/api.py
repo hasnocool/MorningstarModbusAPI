@@ -17,6 +17,7 @@ from fastapi.responses import StreamingResponse
 from morningstar_modbus import __version__
 from morningstar_modbus.catalog import catalog_detail, catalog_summary
 from morningstar_modbus.controller_history import ControllerHistoryRepository
+from morningstar_modbus.controller_inventory import ControllerInventoryRepository
 from morningstar_modbus.history import (
     MAX_JSON_POINTS,
     HistoryQueryError,
@@ -74,12 +75,14 @@ def _polling_mode(value: str) -> str | None:
 
 def create_app(store: TelemetryStore) -> FastAPI:
     controller_history = ControllerHistoryRepository(store.path)
+    controller_inventory = ControllerInventoryRepository(store.path)
     performance_store = PollingPerformanceStore(store.path)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         await store.initialize()
         await controller_history.initialize()
+        await controller_inventory.initialize()
         await performance_store.initialize()
         yield
 
@@ -105,8 +108,16 @@ def create_app(store: TelemetryStore) -> FastAPI:
             raise HTTPException(status_code=404, detail="catalog profile not found")
         return profile
 
+    @app.get("/v1/controllers")
+    async def controllers() -> list[dict[str, object]]:
+        """Return physical controllers with their current and previous connections."""
+
+        return await controller_inventory.list_controllers()
+
     @app.get("/v1/devices")
     async def devices() -> list[dict[str, object]]:
+        """Return raw persisted endpoint records for backward compatibility."""
+
         return await store.list_devices()
 
     @app.get("/v1/devices/latest")
