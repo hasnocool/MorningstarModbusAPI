@@ -6,6 +6,7 @@ This directory documents the current MorningstarModbusAPI architecture and opera
 | --- | --- |
 | [`architecture.md`](architecture.md) | Runtime layers, capture/replay path, in-memory device lifecycle, persistence boundaries, and read-only safety model |
 | [`hardware-verification.md`](hardware-verification.md) | Physical capture, replay, verification reports, fixture publication, evidence levels, and sanitization |
+| [`telemetry-history.md`](telemetry-history.md) | Raw telemetry retention, time ranges, multi-register history, aggregation, statistics, and streaming export |
 | [`device-catalog.md`](device-catalog.md) | Declarative Morningstar product profiles, firmware gates, verification registry, coverage, and extension rules |
 | [`device-intelligence.md`](device-intelligence.md) | Runtime identity resolution, metadata, confidence, capabilities, validation, and effective firmware register maps |
 | [`catalog-maintenance.md`](catalog-maintenance.md) | Official-source download/validation, conservative PDF extraction, advisory diffing, provenance, and CI review gates |
@@ -35,6 +36,10 @@ watcher + in-memory lifecycle/backoff
           v
 SQLite/WAL persistence
           |
+          +----> raw/latest API
+          |
+          +----> history query/aggregation/export
+          |
           v
 FastAPI /v1
 
@@ -42,12 +47,12 @@ catalog declarations ---- official source index
           |                       |
           v                       v
      catalog runtime        maintenance scanner
-          |
-          v
-verification registry          advisory report
+          |                       |
+          v                       v
+verification registry        advisory report
 ```
 
-Capture/replay is part of the runtime verification path, while vendor-document maintenance remains a separate sidecar. Verification evidence is also deliberately kept outside vendor-derived family modules.
+Capture/replay is part of the runtime verification path, while vendor-document maintenance remains a separate sidecar. Verification evidence is deliberately kept outside vendor-derived family modules. The history layer queries existing immutable poll/register rows and does not replace them with lossy rollups.
 
 ## Evidence model
 
@@ -66,4 +71,4 @@ The watcher keeps the detailed six-state lifecycle in memory and logs it during 
 
 ## Version note
 
-The latest published GitHub release is `v0.3.0`. Current `main` includes hardware verification/capture/replay and lifecycle changes merged after that release, so these documents describe `main`, not only the latest tagged release.
+The latest published GitHub release is `v0.3.0`. The current development line includes hardware verification/capture/replay, lifecycle changes, and the richer time-series query/export layer added after that release, so these documents describe current development rather than only the latest tagged release.

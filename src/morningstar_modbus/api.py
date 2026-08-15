@@ -1,19 +1,52 @@
-# src/morningstar_modbus/api.py
 """FastAPI application exposing stored telemetry and Morningstar device intelligence."""
 
 from __future__ import annotations
 
+import csv
+import io
+import json
 import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
 from morningstar_modbus import __version__
 from morningstar_modbus.catalog import catalog_detail, catalog_summary
+from morningstar_modbus.history import (
+    MAX_JSON_POINTS,
+    HistoryQueryError,
+    HistoryQueryTooLarge,
+    build_history_response,
+    normalize_names,
+    normalize_time_range,
+    validate_order,
+    validate_resolution,
+)
 from morningstar_modbus.intelligence import effective_register_map
 from morningstar_modbus.storage import TelemetryStore
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _history_error(exc: HistoryQueryError) -> HTTPException:
+    status_code = 413 if isinstance(exc, HistoryQueryTooLarge) else 400
+    return HTTPException(status_code=status_code, detail=str(exc))
+
+
+def _range_and_order(
+    start: str | None,
+    end: str | None,
+    order: str,
+) -> tuple[str | None, str | None, str]:
+    try:
+        normalized_start, normalized_end = normalize_time_range(start, end)
+        normalized_order = validate_order(order)
+    except HistoryQueryError as exc:
+        raise _history_error(exc) from exc
+    return normalized_start, normalized_end, normalized_order
 
 
 def create_app(store: TelemetryStore) -> FastAPI:
@@ -93,16 +126,140 @@ def create_app(store: TelemetryStore) -> FastAPI:
     async def samples(
         device_id: str = Query(...),
         limit: int = Query(100, ge=1, le=5000),
+        from_: str | None = Query(None, alias="from"),
+        to: str | None = Query(None),
+        order: str = Query("desc"),
     ) -> list[dict[str, object]]:
-        return await store.samples(device_id, limit=limit)
+        start, end, normalized_order = _range_and_order(from_, to, order)
+        return await store.samples(
+            device_id,
+            limit=limit,
+            start=start,
+            end=end,
+            order=normalized_order,
+        )
 
     @app.get("/v1/devices/registers/{name}/history")
     async def register_history(
         name: str,
         device_id: str = Query(...),
         limit: int = Query(1000, ge=1, le=10000),
+        from_: str | None = Query(None, alias="from"),
+        to: str | None = Query(None),
+        order: str = Query("desc"),
     ) -> list[dict[str, object]]:
-        return await store.register_history(device_id, name, limit=limit)
+        start, end, normalized_order = _range_and_order(from_, to, order)
+        return await store.register_history(
+            device_id,
+            name,
+            limit=limit,
+            start=start,
+            end=end,
+            order=normalized_order,
+        )
+
+    @app.get("/v1/devices/registers/history")
+    async def registers_history(
+        name: Annotated[list[str], Query()],
+        device_id: str = Query(...),
+        from_: str | None = Query(None, alias="from"),
+        to: str | None = Query(None),
+        resolution: str = Query("raw"),
+        order: str = Query("asc"),
+        max_points: int = Query(MAX_JSON_POINTS, ge=1, le=MAX_JSON_POINTS),
+    ) -> dict[str, object]:
+        start, end, normalized_order = _range_and_order(from_, to, order)
+        try:
+            names = normalize_names(name)
+            normalized_resolution, bucket_seconds = validate_resolution(resolution)
+            rows = await store.multi_register_history(
+                device_id,
+                names,
+                start=start,
+                end=end,
+                order=normalized_order,
+                bucket_seconds=bucket_seconds,
+                max_points=max_points,
+            )
+        except HistoryQueryError as exc:
+            raise _history_error(exc) from exc
+        return build_history_response(
+            device_id=device_id,
+            start=start,
+            end=end,
+            resolution=normalized_resolution,
+            rows=rows,
+        )
+
+    @app.get("/v1/devices/registers/stats")
+    async def register_stats(
+        name: Annotated[list[str], Query()],
+        device_id: str = Query(...),
+        from_: str | None = Query(None, alias="from"),
+        to: str | None = Query(None),
+    ) -> dict[str, object]:
+        start, end, _ = _range_and_order(from_, to, "asc")
+        try:
+            names = normalize_names(name)
+        except HistoryQueryError as exc:
+            raise _history_error(exc) from exc
+        return {
+            "device_id": device_id,
+            "from": start,
+            "to": end,
+            "registers": await store.register_stats(device_id, names, start=start, end=end),
+        }
+
+    @app.get("/v1/devices/history/summary")
+    async def history_summary(
+        device_id: str = Query(...),
+        from_: str | None = Query(None, alias="from"),
+        to: str | None = Query(None),
+    ) -> dict[str, object]:
+        start, end, _ = _range_and_order(from_, to, "asc")
+        return await store.history_summary(device_id, start=start, end=end)
+
+    @app.get("/v1/devices/history/export")
+    async def history_export(
+        device_id: str = Query(...),
+        name: Annotated[list[str] | None, Query()] = None,
+        from_: str | None = Query(None, alias="from"),
+        to: str | None = Query(None),
+        resolution: str = Query("raw"),
+        order: str = Query("asc"),
+        format_: str = Query("csv", alias="format"),
+    ) -> StreamingResponse:
+        start, end, normalized_order = _range_and_order(from_, to, order)
+        try:
+            names = normalize_names(name) if name else ()
+            normalized_resolution, bucket_seconds = validate_resolution(resolution)
+        except HistoryQueryError as exc:
+            raise _history_error(exc) from exc
+        export_format = format_.strip().lower()
+        if export_format not in {"csv", "jsonl"}:
+            raise HTTPException(status_code=400, detail="format must be csv or jsonl")
+
+        rows = store.iter_history_export(
+            device_id,
+            names,
+            start=start,
+            end=end,
+            order=normalized_order,
+            bucket_seconds=bucket_seconds,
+        )
+        if export_format == "jsonl":
+            stream = _jsonl_stream(rows)
+            media_type = "application/x-ndjson"
+            suffix = "jsonl"
+        else:
+            stream = _csv_stream(rows, resolution=normalized_resolution)
+            media_type = "text/csv"
+            suffix = "csv"
+        return StreamingResponse(
+            stream,
+            media_type=media_type,
+            headers={"Content-Disposition": f'attachment; filename="telemetry-history.{suffix}"'},
+        )
 
     @app.get("/v1/devices/{device_id:path}")
     async def device(device_id: str) -> dict[str, object]:
@@ -112,3 +269,59 @@ def create_app(store: TelemetryStore) -> FastAPI:
         return record
 
     return app
+
+
+async def _jsonl_stream(rows: AsyncIterator[dict[str, object]]) -> AsyncIterator[str]:
+    async for row in rows:
+        yield json.dumps(row, separators=(",", ":"), ensure_ascii=False) + "\n"
+
+
+async def _csv_stream(
+    rows: AsyncIterator[dict[str, object]],
+    *,
+    resolution: str,
+) -> AsyncIterator[str]:
+    if resolution == "raw":
+        fields = [
+            "observed_at",
+            "device_id",
+            "register_name",
+            "address",
+            "function",
+            "raw",
+            "value",
+            "unit",
+            "kind",
+        ]
+    else:
+        fields = [
+            "bucket_start",
+            "device_id",
+            "register_name",
+            "address",
+            "function",
+            "unit",
+            "kind",
+            "count",
+            "min_value",
+            "max_value",
+            "avg_value",
+            "first_value",
+            "last_value",
+            "transitions",
+        ]
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=fields, extrasaction="ignore", lineterminator="\n")
+    writer.writeheader()
+    yield buffer.getvalue()
+    buffer.seek(0)
+    buffer.truncate(0)
+
+    async for row in rows:
+        output = dict(row)
+        if "raw" in output:
+            output["raw"] = json.dumps(output["raw"], separators=(",", ":"))
+        writer.writerow(output)
+        yield buffer.getvalue()
+        buffer.seek(0)
+        buffer.truncate(0)
