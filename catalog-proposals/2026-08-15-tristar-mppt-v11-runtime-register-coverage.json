@@ -1,0 +1,33 @@
+{
+  "source_id": "tristar-mppt-modbus-v11",
+  "source_sha256": "175cffda01cb215999fec2bdd6a7d96350246071033f57f0424795c86614efe4",
+  "affected_profiles": [
+    "tristar_mppt"
+  ],
+  "changes": [
+    {
+      "range": "0x0018-0x004F",
+      "change": "name and describe all documented read-only runtime registers while excluding reserved addresses"
+    },
+    {
+      "range": "0x001E-0x0022",
+      "change": "decode documented internal supply and reference voltages with vendor scaling"
+    },
+    {
+      "range": "0x002A-0x0039",
+      "change": "decode hourmeter, LED/DIP state, and resettable/lifetime Ah and kWh counters"
+    },
+    {
+      "range": "0x003C-0x003E",
+      "change": "decode last MPPT sweep power, Vmp, and Voc"
+    },
+    {
+      "range": "0x0040-0x004F",
+      "change": "decode and describe today's logger values, sticky events, and charge-stage timers including the documented 10 Wh daily-energy increment"
+    }
+  ],
+  "tests": [
+    "tests/test_catalog.py::test_tristar_v11_runtime_map_names_every_documented_readonly_register",
+    "tests/test_profiles.py::test_tristar_profile_decodes_named_metrics"
+  ]
+}
