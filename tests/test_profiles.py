@@ -21,9 +21,17 @@ class FakeClient:
         raw[0x001B] = 6554
         raw[0x001C] = 4096
         raw[0x001D] = 2048
+        raw[0x0024] = 0x0080
+        raw[0x002A] = 0
+        raw[0x002B] = 123
+        raw[0x0031] = 6
         raw[0x0032] = 5
+        raw[0x0034] = 0
+        raw[0x0035] = 25
         raw[0x003A] = 1000
         raw[0x003B] = 1100
+        raw[0x0044] = 249
+        raw[0x0045] = 0b00101
         return raw
 
     async def read_input_registers(self, address: int, count: int) -> list[int]:
@@ -40,6 +48,14 @@ class FakeClient:
 async def test_tristar_profile_decodes_named_metrics() -> None:
     values = await TriStarMpptProfile().poll(FakeClient())
     by_name = {item.name: item for item in values}
+
     assert by_name["charge_state"].value == "MPPT"
+    assert by_name["led_state"].value == "GREEN"
     assert by_name["battery_voltage"].unit == "V"
     assert by_name["input_power"].unit == "W"
+    assert by_name["operating_hours"].value == 123
+    assert by_name["charge_ah_resettable"].value == 2.5
+    assert by_name["daily_charge_wh"].value == 2490
+    assert by_name["daily_charge_wh"].unit == "Wh"
+    assert by_name["daily_flags"].value == "reset_detected,entered_float"
+    assert by_name["rts_temp"].value == "DISCONNECTED"
