@@ -169,6 +169,7 @@ def effective_register_map(profile_name: str, firmware: object = "") -> dict[str
         return None
     blocks = effective_items(spec.blocks, firmware)
     registers = effective_items(spec.registers, firmware)
+    reserved_ranges = effective_items(spec.reserved_ranges, firmware)
     return {
         "profile": spec.name,
         "family": spec.family,
@@ -186,6 +187,17 @@ def effective_register_map(profile_name: str, firmware: object = "") -> dict[str
                 "until_firmware": block.until_firmware,
             }
             for block in blocks
+        ],
+        "reserved_ranges": [
+            {
+                "address": reserved.address,
+                "count": reserved.count,
+                "function": reserved.function,
+                "description": reserved.description,
+                "since_firmware": reserved.since_firmware,
+                "until_firmware": reserved.until_firmware,
+            }
+            for reserved in reserved_ranges
         ],
         "registers": [
             {
