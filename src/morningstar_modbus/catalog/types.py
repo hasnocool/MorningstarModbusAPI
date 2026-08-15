@@ -51,6 +51,22 @@ class RegisterBlock:
 
 
 @dataclass(frozen=True, slots=True)
+class ReservedRegisterRange:
+    """A documented reserved span inside a readable register block.
+
+    Reserved words are intentionally retained as raw evidence when a full block is
+    read, but they must not be presented as missing semantic catalog mappings.
+    """
+
+    address: int
+    count: int = 1
+    function: RegisterFunction = "holding"
+    description: str = "Reserved by the manufacturer."
+    since_firmware: str | None = None
+    until_firmware: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class RegisterSpec:
     """A named register or multi-word field inside a device catalog."""
 
@@ -79,6 +95,7 @@ class DeviceProfileSpec:
     source_url: str
     blocks: tuple[RegisterBlock, ...]
     registers: tuple[RegisterSpec, ...]
+    reserved_ranges: tuple[ReservedRegisterRange, ...] = ()
     capabilities: tuple[str, ...] = ()
     network: tuple[tuple[str, str], ...] = ()
     detection_priority: int = 100
@@ -121,6 +138,17 @@ class DeviceProfileSpec:
                     "until_firmware": block.until_firmware,
                 }
                 for block in self.blocks
+            ],
+            "reserved_ranges": [
+                {
+                    "address": reserved.address,
+                    "count": reserved.count,
+                    "function": reserved.function,
+                    "description": reserved.description,
+                    "since_firmware": reserved.since_firmware,
+                    "until_firmware": reserved.until_firmware,
+                }
+                for reserved in self.reserved_ranges
             ],
             "register_count": len(self.registers),
         }

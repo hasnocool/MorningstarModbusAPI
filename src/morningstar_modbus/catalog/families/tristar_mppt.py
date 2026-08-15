@@ -8,7 +8,12 @@ from morningstar_modbus.catalog.common import (
     TRISTAR_MPPT_FAULTS,
     TRISTAR_MPPT_LED_STATES,
 )
-from morningstar_modbus.catalog.types import DeviceProfileSpec, RegisterBlock, RegisterSpec
+from morningstar_modbus.catalog.types import (
+    DeviceProfileSpec,
+    RegisterBlock,
+    RegisterSpec,
+    ReservedRegisterRange,
+)
 
 SOURCE = (
     "https://www.morningstarcorp.com/wp-content/uploads/"
@@ -27,6 +32,21 @@ TRISTAR_MPPT = DeviceProfileSpec(
     blocks=(
         RegisterBlock(0x0000, 0x0050),
         RegisterBlock(0xE0C0, 0x000E, category="metadata", optional=True, cache=True),
+    ),
+    reserved_ranges=(
+        ReservedRegisterRange(
+            0x0005,
+            0x0013,
+            description="Reserved RAM words 0x0005-0x0017 in the TriStar MPPT v11 map.",
+        ),
+        ReservedRegisterRange(0x002D, description="Reserved status word."),
+        ReservedRegisterRange(0x003F, description="Reserved word between MPPT and daily logger values."),
+        ReservedRegisterRange(0x004A, description="Reserved daily-logger word."),
+        ReservedRegisterRange(
+            0xE0C4,
+            0x0008,
+            description="Reserved factory metadata words between serial number and model flag.",
+        ),
     ),
     registers=(
         RegisterSpec(
@@ -415,6 +435,7 @@ TRISTAR_MPPT = DeviceProfileSpec(
         RegisterSpec(
             "hardware_version",
             0xE0CD,
+            decoder="byte_pair_version",
             category="metadata",
             description="Controller hardware revision from the read-only factory metadata area.",
         ),
