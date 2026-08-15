@@ -1,0 +1,22 @@
+{
+  "source_id": "tristar-mppt-modbus-v11",
+  "source_sha256": "175cffda01cb215999fec2bdd6a7d96350246071033f57f0424795c86614efe4",
+  "affected_profiles": [
+    "tristar_mppt"
+  ],
+  "changes": [
+    {
+      "range": "0x0005-0x0017, 0x002D, 0x003F, 0x004A, 0xE0C4-0xE0CB",
+      "change": "classify manufacturer-reserved words explicitly so clients do not mistake raw block evidence for missing semantic register mappings"
+    },
+    {
+      "address": "0xE0CD",
+      "change": "decode Ehw_version as major version in the upper byte and minor version in the lower byte"
+    }
+  ],
+  "tests": [
+    "tests/test_intelligence.py::test_resolver_combines_identity_metadata_and_catalog",
+    "tests/test_intelligence.py::test_effective_map_applies_firmware_gates",
+    "tests/test_intelligence.py::test_tristar_effective_map_marks_documented_reserved_words"
+  ]
+}
