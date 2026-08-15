@@ -8,6 +8,7 @@ import json
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import date
 from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Query
@@ -15,6 +16,7 @@ from fastapi.responses import StreamingResponse
 
 from morningstar_modbus import __version__
 from morningstar_modbus.catalog import catalog_detail, catalog_summary
+from morningstar_modbus.controller_history import ControllerHistoryRepository
 from morningstar_modbus.history import (
     MAX_JSON_POINTS,
     HistoryQueryError,
@@ -49,10 +51,24 @@ def _range_and_order(
     return normalized_start, normalized_end, normalized_order
 
 
+def _daily_range(start: str | None, end: str | None) -> tuple[str | None, str | None]:
+    try:
+        normalized_start = date.fromisoformat(start).isoformat() if start else None
+        normalized_end = date.fromisoformat(end).isoformat() if end else None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="daily history dates must use YYYY-MM-DD") from exc
+    if normalized_start is not None and normalized_end is not None and normalized_start >= normalized_end:
+        raise HTTPException(status_code=400, detail="from must be earlier than to")
+    return normalized_start, normalized_end
+
+
 def create_app(store: TelemetryStore) -> FastAPI:
+    controller_history = ControllerHistoryRepository(store.path)
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         await store.initialize()
+        await controller_history.initialize()
         yield
 
     app = FastAPI(
@@ -218,6 +234,20 @@ def create_app(store: TelemetryStore) -> FastAPI:
     ) -> dict[str, object]:
         start, end, _ = _range_and_order(from_, to, "asc")
         return await store.history_summary(device_id, start=start, end=end)
+
+    @app.get("/v1/devices/history/controller-daily")
+    async def controller_daily_history(
+        device_id: str = Query(...),
+        from_: str | None = Query(None, alias="from"),
+        to: str | None = Query(None),
+        limit: int = Query(200, ge=1, le=500),
+    ) -> list[dict[str, object]]:
+        start, end = _daily_range(from_, to)
+        return await controller_history.list(device_id, start=start, end=end, limit=limit)
+
+    @app.get("/v1/devices/history/controller-daily/summary")
+    async def controller_daily_history_summary(device_id: str = Query(...)) -> dict[str, object]:
+        return await controller_history.summary(device_id)
 
     @app.get("/v1/devices/history/export")
     async def history_export(

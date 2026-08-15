@@ -8,6 +8,7 @@ import time
 
 from morningstar_modbus.catalog import CatalogProfile, get_profile
 from morningstar_modbus.config import AppConfig
+from morningstar_modbus.controller_history import ControllerHistoryBackfiller
 from morningstar_modbus.discovery import discover
 from morningstar_modbus.intelligence import DeviceIntelligence, refresh_intelligence
 from morningstar_modbus.lifecycle import DeviceLifecycle
@@ -29,18 +30,28 @@ class Watcher:
         self._intelligence: dict[str, DeviceIntelligence] = {}
         self._lifecycles: dict[str, DeviceLifecycle] = {}
         self._present_keys: set[str] = set()
+        self._history_backfiller = ControllerHistoryBackfiller(store.path, config.backfill)
+        self._history_tasks: dict[str, asyncio.Task[None]] = {}
+        self._history_attempted_keys: set[str] = set()
         self._stopping = asyncio.Event()
 
     async def stop(self) -> None:
         self._stopping.set()
+        history_tasks = tuple(self._history_tasks.values())
+        self._history_tasks.clear()
+        for task in history_tasks:
+            task.cancel()
         clients = tuple(self._clients.values())
         self._clients.clear()
         self._profiles.clear()
         self._intelligence.clear()
+        if history_tasks:
+            await asyncio.gather(*history_tasks, return_exceptions=True)
         if clients:
             await asyncio.gather(*(client.close() for client in clients), return_exceptions=True)
 
     async def run(self) -> None:
+        await self._history_backfiller.initialize()
         next_discovery = 0.0
         try:
             while not self._stopping.is_set():
@@ -138,11 +149,68 @@ class Watcher:
             self._profiles[key] = profile
         return profile
 
+    def _schedule_history_backfill(
+        self,
+        key: str,
+        device_id: str,
+        device: DiscoveredDevice,
+        *,
+        reconnected: bool,
+    ) -> None:
+        if not self._history_backfiller.supports(device):
+            return
+        initial_sync = key not in self._history_attempted_keys
+        should_sync = (initial_sync and self.config.backfill.on_startup) or (
+            reconnected and self.config.backfill.on_reconnect
+        )
+        if not should_sync:
+            return
+        existing = self._history_tasks.get(key)
+        if existing is not None and not existing.done():
+            return
+        self._history_attempted_keys.add(key)
+        task = asyncio.create_task(
+            self._backfill_history(key, device_id, device),
+            name=f"controller-history-{device_id}",
+        )
+        self._history_tasks[key] = task
+
+    async def _backfill_history(
+        self,
+        key: str,
+        device_id: str,
+        device: DiscoveredDevice,
+    ) -> None:
+        try:
+            result = await self._history_backfiller.sync(device_id, device)
+            LOGGER.info(
+                "controller history sync device=%s status=%s records=%d oldest=%s newest=%s",
+                device_id,
+                result.status,
+                result.records_written,
+                result.oldest_day,
+                result.newest_day,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            LOGGER.warning(
+                "controller history sync failed device=%s endpoint=%s error=%s",
+                device_id,
+                device.endpoint.locator,
+                exc,
+            )
+        finally:
+            current = self._history_tasks.get(key)
+            if current is asyncio.current_task():
+                self._history_tasks.pop(key, None)
+
     async def _poll_one(self, key: str, device: DiscoveredDevice) -> None:
         device_id = self._device_ids.get(key)
         if device_id is None:
             return
         lifecycle = self._lifecycles.setdefault(key, DeviceLifecycle())
+        reconnected = bool(lifecycle.offline_since or lifecycle.consecutive_failures)
         lifecycle.mark_connecting()
         client = self._client(key, device)
         profile = self._profile(key, device)
@@ -167,6 +235,12 @@ class Watcher:
                 )
                 self._intelligence[key] = intelligence
                 await self.store.save_device_intelligence(device_id, intelligence)
+            self._schedule_history_backfill(
+                key,
+                device_id,
+                device,
+                reconnected=reconnected,
+            )
         except Exception as exc:
             lifecycle.mark_failure(
                 threshold=self.config.watch.failure_threshold,
