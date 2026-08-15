@@ -169,7 +169,7 @@ def test_poll_persistence_limiter_caps_subsecond_updates() -> None:
     assert limiter.should_persist("ctrl_b")
 
 
-def test_auto_poll_interval_advances_then_locks_to_last_safe_stage() -> None:
+def test_auto_poll_interval_starts_conservative_then_locks_to_last_safe_stage() -> None:
     now = datetime(2026, 8, 15, tzinfo=UTC)
     auto = AutoPollIntervalController(
         [1.0, 0.5, 0.25],
@@ -178,10 +178,22 @@ def test_auto_poll_interval_advances_then_locks_to_last_safe_stage() -> None:
         fallback_interval_seconds=5.0,
     )
 
-    assert auto.current_interval_seconds == 1.0
+    assert auto.current_interval_seconds == 5.0
     for index in range(3):
         message = auto.observe(
-            {"ctrl_a": _sample(now + timedelta(seconds=index), interval=1.0, latency_ms=100.0)},
+            {"ctrl_a": _sample(now + timedelta(seconds=index * 5), interval=5.0, latency_ms=100.0)},
+            {"ctrl_a"},
+        )
+    assert message == "auto polling stage 5s passed; testing 1s"
+    assert auto.current_interval_seconds == 1.0
+
+    for index in range(3):
+        message = auto.observe(
+            {
+                "ctrl_a": _sample(
+                    now + timedelta(seconds=20 + index), interval=1.0, latency_ms=100.0
+                )
+            },
             {"ctrl_a"},
         )
     assert message == "auto polling stage 1s passed; testing 0.5s"
@@ -193,7 +205,7 @@ def test_auto_poll_interval_advances_then_locks_to_last_safe_stage() -> None:
         message = auto.observe(
             {
                 "ctrl_a": _sample(
-                    now + timedelta(seconds=10 + index),
+                    now + timedelta(seconds=30 + index),
                     interval=0.5,
                     latency_ms=450.0,
                 )
@@ -215,24 +227,41 @@ def test_auto_poll_interval_requires_every_present_controller_to_pass() -> None:
         fallback_interval_seconds=5.0,
     )
 
-    # One controller has a complete window, but auto mode must not advance until
-    # the other currently-present controller has a complete window too.
+    # One controller has a complete baseline window, but auto mode must not
+    # advance until the other currently-present controller does too.
     for index in range(3):
         message = auto.observe(
-            {"ctrl_a": _sample(now + timedelta(seconds=index), interval=1.0, latency_ms=100.0)},
+            {"ctrl_a": _sample(now + timedelta(seconds=index * 5), interval=5.0, latency_ms=100.0)},
             {"ctrl_a", "ctrl_b"},
         )
     assert message is None
-    assert auto.current_interval_seconds == 1.0
+    assert auto.current_interval_seconds == 5.0
 
     for index in range(3):
         message = auto.observe(
             {
                 "ctrl_a": _sample(
-                    now + timedelta(seconds=10 + index), interval=1.0, latency_ms=100.0
+                    now + timedelta(seconds=20 + index * 5), interval=5.0, latency_ms=100.0
                 ),
                 "ctrl_b": _sample(
-                    now + timedelta(seconds=10 + index), interval=1.0, latency_ms=900.0
+                    now + timedelta(seconds=20 + index * 5), interval=5.0, latency_ms=900.0
+                ),
+            },
+            {"ctrl_a", "ctrl_b"},
+        )
+    assert message == "auto polling stage 5s passed; testing 1s"
+    assert auto.current_interval_seconds == 1.0
+
+    # Controller B cannot safely meet the 1-second headroom target, so the
+    # global watcher cadence must return to the proven 5-second baseline.
+    for index in range(3):
+        message = auto.observe(
+            {
+                "ctrl_a": _sample(
+                    now + timedelta(seconds=40 + index), interval=1.0, latency_ms=100.0
+                ),
+                "ctrl_b": _sample(
+                    now + timedelta(seconds=40 + index), interval=1.0, latency_ms=900.0
                 ),
             },
             {"ctrl_a", "ctrl_b"},
