@@ -2,11 +2,13 @@
 
 MorningstarModbusAPI can measure the real cost of each full catalog/profile poll and persist those measurements alongside controller telemetry. The performance layer is observational only: it does not add Modbus writes or change controller settings.
 
+For new integrations, polling-performance data should normally be read through the immutable physical-controller API. The legacy device-scoped routes remain available when one exact raw `device_id` segment is required.
+
 ## Why measure instead of hard-coding a rate?
 
-A safe polling interval depends on more than baud rate. It also depends on the number and size of register blocks in the active profile, controller response time, USB/serial adapter latency, TCP connection setup, firmware behavior, request retries, and the host running the daemon.
+A safe polling interval depends on more than baud rate. It also depends on the number and size of register blocks in the active profile, controller response time, USB/serial adapter latency, TCP behavior, firmware behavior, request retries, and the host running the daemon.
 
-The daemon therefore records performance for the exact profile polls it is already performing. A separate benchmark command can deliberately test progressively faster intervals and stop as soon as the configured headroom criteria are not met.
+The watcher therefore records performance for the exact profile polls it is already performing. A separate benchmark command can deliberately test progressively faster intervals and stop as soon as configured headroom criteria are not met.
 
 ## Persisted performance samples
 
@@ -27,9 +29,23 @@ The `poll_performance_samples` table stores one row for each watcher poll attemp
 
 A successful watcher sample may reference its corresponding `poll_samples` telemetry row. Failed polls still receive a performance row even though there is no successful telemetry sample.
 
+Performance rows retain their original raw `device_id` ownership. Controller-scoped queries resolve all historical member IDs for the physical controller and combine those records without rewriting them.
+
 ## Continuous metrics
 
-`GET /v1/devices/polling/performance?device_id=...&window=300` summarizes the most recent watcher performance samples. It includes:
+Preferred controller-scoped summary:
+
+```http
+GET /v1/controllers/{controller_uid}/polling/performance?window=300
+```
+
+Raw controller-scoped records:
+
+```http
+GET /v1/controllers/{controller_uid}/polling/history?limit=300
+```
+
+The summary includes metrics such as:
 
 ```text
 poll_rate_hz
@@ -46,13 +62,16 @@ bus_utilization_percent
 bus_utilization_max_percent
 ```
 
-Use `mode=benchmark` to summarize benchmark records or `mode=all` to combine both sources.
+Use `mode=benchmark` to summarize benchmark records or `mode=all` to combine both sources. The default mode is `watch`.
 
-Raw records are available through:
+Legacy device-scoped equivalents remain available:
 
 ```http
+GET /v1/devices/polling/performance?device_id=DEVICE_ID&window=300
 GET /v1/devices/polling/history?device_id=DEVICE_ID&limit=300
 ```
+
+The controller routes are preferred when a controller has changed IP, USB path, or historical raw device ID.
 
 ## RTU bus utilization
 
@@ -64,7 +83,7 @@ TCP does not expose this serial-style metric; its `bus_utilization_percent` fiel
 
 ## Target interval scheduling
 
-The watcher treats `poll_interval_seconds` as a target **start-to-start** interval. It subtracts the time spent polling from the sleep period:
+The watcher treats `poll_interval_seconds` as a target **start-to-start** interval. It subtracts time spent polling from the sleep period:
 
 ```text
 poll starts
@@ -126,6 +145,16 @@ recommended interval: 0.500s
 
 The exact values come from the attached device and adapter rather than from the example.
 
+## Benchmark identity and persistence
+
+Benchmark performance rows are saved to the configured SQLite database by default with `mode=benchmark`. Before persistence, the benchmark observation is registered through the same physical-controller registry used by the watcher.
+
+That matters when the endpoint has moved: a benchmark performed on a new DHCP address or USB path is associated with the existing immutable `controller_uid`/canonical telemetry identity rather than independently creating a new endpoint-owned controller history.
+
+Use `--no-persist` when a temporary benchmark should leave no performance records.
+
+The benchmark warm-up/identity traffic is not included in stage measurements. Only complete steady-state profile polls are evaluated.
+
 ## Benchmark safety behavior
 
 The benchmark performs only the same read-only profile reads used by normal monitoring. It does not write registers or coils.
@@ -133,12 +162,6 @@ The benchmark performs only the same read-only profile reads used by normal moni
 The default minimum benchmark interval is 250 ms. Faster custom stages are rejected unless the configured `minimum_interval_seconds` is deliberately lowered. The ordinary watcher remains at its conservative configured interval; running the benchmark does **not** automatically rewrite `config.toml` or change the daemon's interval.
 
 This separation is intentional. The benchmark produces evidence and a recommendation; the operator decides whether to apply it.
-
-## Persistence
-
-Benchmark performance rows are saved to the configured SQLite database by default with `mode=benchmark`, allowing later comparison with real watcher behavior. Use `--no-persist` when a temporary benchmark should leave no performance records.
-
-The benchmark warm-up/identity traffic is not included in stage measurements. Only complete steady-state profile polls are evaluated.
 
 ## Interpreting the recommendation
 
@@ -149,5 +172,8 @@ A sensible deployment workflow is:
 1. run the benchmark on the actual device/transport;
 2. choose the recommended interval or a slower one;
 3. set `[watch].poll_interval_seconds`;
-4. monitor `/v1/devices/polling/performance` over normal operation;
-5. increase the interval again if p95/p99 latency, request errors, deadline misses, or RTU utilization drift upward.
+4. monitor `/v1/controllers/{controller_uid}/polling/performance` over normal operation;
+5. inspect `mode=all` or `mode=benchmark` when comparing benchmark evidence to watcher behavior;
+6. increase the interval again if p95/p99 latency, request errors, deadline misses, or RTU utilization drift upward.
+
+For the full API parameter reference, see [`api.md`](api.md).
