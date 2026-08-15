@@ -13,6 +13,8 @@ MorningstarModbusAPI separates vendor documentation, ordinary software tests, de
 
 The checked-in TriStar MPPT TS-MPPT-60 firmware-29 fixture is `synthetic-spec-derived`. It exists to exercise capture/replay semantics in CI and is intentionally **not** physical-device evidence.
 
+Catalog verification metadata is maintained separately in `src/morningstar_modbus/catalog/verification.py`. The current TriStar MPPT entry reports document/software evidence as verified, fixture evidence as synthetic, and hardware evidence as pending.
+
 ## Capture a physical device
 
 Capture performs read-only Device Identification, intelligence resolution, targeted metadata reads, and one firmware-aware profile poll while recording exact Modbus transport exchanges.
@@ -44,8 +46,6 @@ morningstar-modbus capture \
 
 ### Bundle contents
 
-A capture directory contains:
-
 ```text
 capture/
 ├── manifest.json
@@ -55,7 +55,7 @@ capture/
 └── expected.json
 ```
 
-Each transaction record preserves:
+`transactions.jsonl` contains one record per transport exchange with:
 
 - UTC timestamp;
 - transport and unit ID;
@@ -66,23 +66,29 @@ Each transaction record preserves:
 - latency;
 - exception/error information when an operation fails.
 
-Decoded register values are stored separately in `registers.json`; they are not duplicated into each `transactions.jsonl` record. TCP captures preserve the MBAP header and PDU. Successful RTU captures preserve the complete request/response ADUs including CRC.
+Decoded register values are **not** stored in each transaction record. `registers.json` stores the `RegisterValue` objects produced by the profile poll, including raw register words and decoded named values.
+
+TCP captures preserve full request/response frames including MBAP data and PDU bytes. Successful RTU captures preserve complete request/response ADUs including CRC.
+
+`manifest.json` records schema version, provenance, profile/family/model/firmware/hardware context, endpoint metadata, transaction count, and privacy flags. `expected.json` records replay-oriented expectations including profile, family, model, firmware, intelligence status/confidence, and the set of named registers.
 
 ## Identifier and publication safety
 
-Structured endpoint and serial identifiers are redacted by default. `--include-identifiers` keeps those structured fields, but it does not change the raw frame policy.
+Structured endpoint and serial identifiers are redacted by default. Without `--include-identifiers`, the manifest target is replaced with `<redacted>`, USB serial metadata is removed, Device Identification raw objects/PDU are cleared, and named serial register values are redacted.
 
-**Raw protocol frames can contain serial numbers or other identifiers.** Before publishing a physical capture:
+That structured redaction does **not** rewrite `transactions.jsonl`. Raw protocol frames can still contain serial numbers or other identifiers.
+
+Before publishing a physical capture:
 
 1. confirm the device model and firmware used for the recording;
 2. inspect `manifest.json` and `identification.json`;
-3. inspect raw frames for embedded identifiers;
-4. keep enough protocol bytes for faithful replay while removing information that should not be public;
-5. re-run replay after sanitization;
+3. inspect raw transaction frames for embedded identifiers;
+4. preserve enough protocol bytes for faithful replay while removing information that should not be public;
+5. replay the sanitized bundle again;
 6. document what was sanitized;
-7. only then consider changing hardware verification metadata.
+7. only then consider advancing hardware verification metadata.
 
-Do not replace real evidence with invented values and then label the fixture as physical-device-derived. If sanitization prevents trustworthy replay, retain the capture privately and publish only non-sensitive derived expectations.
+Do not replace real evidence with invented values and then label the fixture physical-device-derived. If sanitization prevents trustworthy replay, keep the capture private and publish only non-sensitive derived expectations.
 
 ## Verify attached hardware
 
@@ -110,11 +116,24 @@ morningstar-modbus verify \
   --capture captures/verified-ts-mppt-60
 ```
 
-`verify` uses the same resolver/profile logic as normal operation. The report includes the selected profile/family, model, firmware and hardware revision, transport and unit ID, intelligence status and confidence, required/runtime/metadata/optional block availability, named-register coverage, and a final result. JSON output also includes the collected warning messages. The current report does not embed catalog revision or the separate catalog verification-evidence record; those remain available through the catalog/intelligence surfaces rather than the `verify` report itself.
+`verify` uses the same identity resolver and firmware-aware profile code used by normal operation. `VerificationReport` currently includes:
 
-The human-readable renderer currently focuses on identity, confidence, block/register coverage, and the final result; use `--json` when warning messages are needed programmatically.
+- selected profile and family;
+- model, firmware, and hardware revision;
+- transport and unit ID;
+- intelligence status and confidence;
+- runtime block readable/total counts;
+- metadata block readable/total counts;
+- optional block readable/total counts;
+- named register decoded/total counts;
+- final result;
+- warnings in JSON output.
 
-The command returns exit status `0` for a `verified` result and `2` for a non-verified result, making it usable in scripts or hardware-in-the-loop checks.
+The current report does **not** embed catalog revision or the independent catalog verification-evidence object. Those are available through `/v1/catalog`, `/v1/catalog/{profile_name}`, and persisted device intelligence where applicable.
+
+The human-readable renderer focuses on identity, confidence, block/register coverage, and the final result. Use `--json` when warning messages are needed programmatically.
+
+The command exits with status `0` for a `verified` result and `2` for a non-verified result.
 
 ## Replay in CI
 
@@ -133,7 +152,7 @@ morningstar-modbus replay \
 
 `ReplayModbusClient` is strict: function code, address, count, and transaction order must match the capture. Recorded response PDUs are passed through the production protocol parsers rather than bypassing them.
 
-This lets CI exercise:
+The replay-driven tests can exercise:
 
 ```text
 capture fixture
@@ -168,31 +187,40 @@ Recommended workflow:
 6. Add explicit expected model/firmware/register assertions.
 7. Add the fixture under tests/fixtures/morningstar/tristar_mppt/...
 8. Run Ruff and pytest.
-9. Update verification metadata from `pending` only to the level justified by the evidence.
+9. Update verification metadata only to the level justified by the evidence.
 ```
 
-A useful naming pattern is:
+Keep synthetic and physical fixtures visibly distinct, for example:
 
 ```text
 tests/fixtures/morningstar/
 └── tristar_mppt/
     └── TS-MPPT-60/
+        ├── synthetic-fw-29/
         └── fw-29-physical/
 ```
 
-Keep synthetic and physical fixtures visibly distinct.
-
 ## Device lifecycle and reconnect verification
 
-The watcher tracks:
+The watcher maintains this lifecycle **in memory**:
 
 ```text
 discovered → connecting → online → degraded → offline → rediscovering → online
 ```
 
-Repeated failures use exponential backoff, failed clients are closed so retries create fresh connections, and devices missing from the latest discovery pass are not polled through stale endpoints. Lifecycle records include consecutive failures, reconnect count, endpoint-change count, last successful poll, last seen time, and next retry time.
+`DeviceLifecycle` tracks:
 
-The relevant configuration is:
+- `state`;
+- `consecutive_failures`;
+- `reconnect_count`;
+- `endpoint_changes`;
+- `last_discovered`;
+- `last_success`;
+- `offline_since`;
+- `retry_in_seconds`;
+- an internal monotonic next-retry deadline used by `can_poll()`.
+
+Repeated failures use exponential backoff. A failed client is closed so the next eligible poll creates a fresh connection. A device absent from the latest discovery result enters `rediscovering`, its client is closed, and it is not polled until rediscovered.
 
 ```toml
 [watch]
@@ -201,4 +229,6 @@ retry_backoff_initial_seconds = 2.0
 retry_backoff_max_seconds = 60.0
 ```
 
-Future hardware-in-the-loop tests should cover cable unplug/replug, USB path changes, TCP interruption, device reboot, and recovery after backoff without adding any controller write operation.
+The detailed lifecycle is **not currently persisted** to SQLite and is not exposed as a dedicated API endpoint. SQLite's `devices` table separately stores `status`, `last_seen`, and `last_error`; the storage-level status is currently `online` after discovery/successful polls and `error` after a saved poll failure.
+
+Future hardware-in-the-loop tests should cover cable unplug/replug, USB path changes, TCP interruption, device reboot, endpoint movement, and recovery after backoff without adding any controller write operation.
