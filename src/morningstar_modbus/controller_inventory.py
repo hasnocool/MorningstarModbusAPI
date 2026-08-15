@@ -259,7 +259,7 @@ class ControllerInventoryRepository:
             endpoint_owner = await (
                 await db.execute(
                     """
-                    SELECT ci.controller_id, ci.canonical_device_id, ci.serial_number
+                    SELECT ci.*
                     FROM controller_connections cc
                     JOIN controller_identities ci ON ci.controller_id=cc.controller_id
                     WHERE cc.endpoint_key=?
@@ -269,56 +269,75 @@ class ControllerInventoryRepository:
                     (device.endpoint.stable_key,),
                 )
             ).fetchone()
+            serial = str(row.get("serial_number") or "").strip()
 
             if identity is not None:
                 canonical_device_id = str(identity["canonical_device_id"])
                 match_strategy = identity_source
                 match_confidence = 1.0 if identity_source == "controller_serial" else 0.8
-            else:
-                serial = str(row.get("serial_number") or "").strip()
-                owner_serial = (
-                    str(endpoint_owner["serial_number"] or "").strip()
-                    if endpoint_owner is not None
-                    else ""
-                )
+            elif endpoint_owner is not None:
+                owner_serial = str(endpoint_owner["serial_number"] or "").strip()
+                owner_controller_id = str(endpoint_owner["controller_id"])
+                owner_device_id = str(endpoint_owner["canonical_device_id"])
                 if serial and owner_serial and serial != owner_serial:
                     canonical_device_id = _conflict_device_id(device)
                     match_strategy = "controller_serial_conflict"
                     match_confidence = 0.95
-                else:
-                    endpoint_row = await (
-                        await db.execute(
-                            "SELECT id FROM devices WHERE stable_key=?",
-                            (device.endpoint.stable_key,),
-                        )
-                    ).fetchone()
-                    canonical_device_id = (
-                        str(endpoint_row["id"])
-                        if endpoint_row is not None
-                        else device.endpoint.stable_key
-                    )
-                    match_strategy = "new_controller"
-                    match_confidence = 0.4
-                await self._insert_canonical_device(db, canonical_device_id, device, now)
-                await db.execute(
-                    """
-                    INSERT INTO controller_identities (
-                        controller_id, canonical_device_id, identity_source, identity_value,
-                        profile, family, model, serial_number, first_seen, last_seen
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
+                    await self._insert_new_identity(
+                        db,
                         controller_id,
                         canonical_device_id,
                         identity_source,
                         identity_value,
-                        device.profile,
-                        row.get("family") or "",
-                        row.get("model") or "",
-                        row.get("serial_number") or "",
+                        device,
+                        row,
                         now,
-                        now,
-                    ),
+                    )
+                elif serial and not owner_serial:
+                    canonical_device_id = owner_device_id
+                    await self._promote_identity(
+                        db,
+                        old_controller_id=owner_controller_id,
+                        new_controller_id=controller_id,
+                        canonical_device_id=canonical_device_id,
+                        identity_source=identity_source,
+                        identity_value=identity_value,
+                        device=device,
+                        row=row,
+                        now=now,
+                    )
+                    match_strategy = "controller_serial_promotion"
+                    match_confidence = 1.0
+                else:
+                    controller_id = owner_controller_id
+                    canonical_device_id = owner_device_id
+                    identity_source = str(endpoint_owner["identity_source"])
+                    identity_value = str(endpoint_owner["identity_value"])
+                    match_strategy = "known_endpoint_owner"
+                    match_confidence = 0.95 if owner_serial else 0.65
+            else:
+                endpoint_row = await (
+                    await db.execute(
+                        "SELECT id FROM devices WHERE stable_key=?",
+                        (device.endpoint.stable_key,),
+                    )
+                ).fetchone()
+                canonical_device_id = (
+                    str(endpoint_row["id"])
+                    if endpoint_row is not None
+                    else device.endpoint.stable_key
+                )
+                match_strategy = "new_controller"
+                match_confidence = 0.4
+                await self._insert_new_identity(
+                    db,
+                    controller_id,
+                    canonical_device_id,
+                    identity_source,
+                    identity_value,
+                    device,
+                    row,
+                    now,
                 )
 
             await self._update_canonical_device(db, canonical_device_id, device, now)
@@ -333,11 +352,112 @@ class ControllerInventoryRepository:
             )
             await self._record_evidence(db, controller_id, device, now)
             await db.execute(
-                "UPDATE controller_identities SET last_seen=? WHERE controller_id=?",
-                (now, controller_id),
+                """
+                UPDATE controller_identities
+                SET last_seen=?, profile=?, family=?, model=?,
+                    serial_number=CASE WHEN ?!='' THEN ? ELSE serial_number END
+                WHERE controller_id=?
+                """,
+                (
+                    now,
+                    device.profile,
+                    row.get("family") or "",
+                    row.get("model") or "",
+                    serial,
+                    serial,
+                    controller_id,
+                ),
             )
             await db.commit()
         return controller_id, canonical_device_id
+
+    async def _insert_new_identity(
+        self,
+        db: aiosqlite.Connection,
+        controller_id: str,
+        canonical_device_id: str,
+        identity_source: str,
+        identity_value: str,
+        device: DiscoveredDevice,
+        row: dict[str, Any],
+        now: str,
+    ) -> None:
+        await self._insert_canonical_device(db, canonical_device_id, device, now)
+        await db.execute(
+            """
+            INSERT INTO controller_identities (
+                controller_id, canonical_device_id, identity_source, identity_value,
+                profile, family, model, serial_number, first_seen, last_seen
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                controller_id,
+                canonical_device_id,
+                identity_source,
+                identity_value,
+                device.profile,
+                row.get("family") or "",
+                row.get("model") or "",
+                row.get("serial_number") or "",
+                now,
+                now,
+            ),
+        )
+
+    async def _promote_identity(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        old_controller_id: str,
+        new_controller_id: str,
+        canonical_device_id: str,
+        identity_source: str,
+        identity_value: str,
+        device: DiscoveredDevice,
+        row: dict[str, Any],
+        now: str,
+    ) -> None:
+        old = await (
+            await db.execute(
+                "SELECT first_seen FROM controller_identities WHERE controller_id=?",
+                (old_controller_id,),
+            )
+        ).fetchone()
+        first_seen = str(old[0]) if old is not None else now
+        await db.execute(
+            """
+            INSERT INTO controller_identities (
+                controller_id, canonical_device_id, identity_source, identity_value,
+                profile, family, model, serial_number, first_seen, last_seen
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                new_controller_id,
+                canonical_device_id,
+                identity_source,
+                identity_value,
+                device.profile,
+                row.get("family") or "",
+                row.get("model") or "",
+                row.get("serial_number") or "",
+                first_seen,
+                now,
+            ),
+        )
+        for table in (
+            "controller_device_members",
+            "controller_connections",
+            "controller_connection_locations",
+            "controller_identity_evidence",
+        ):
+            await db.execute(
+                f"UPDATE {table} SET controller_id=? WHERE controller_id=?",
+                (new_controller_id, old_controller_id),
+            )
+        await db.execute(
+            "DELETE FROM controller_identities WHERE controller_id=?",
+            (old_controller_id,),
+        )
 
     async def reconcile_presence(self, observed: set[tuple[str, str]]) -> None:
         """Mark the selected/current connection from one complete discovery cycle."""
