@@ -9,6 +9,11 @@ discovery_interval_seconds = 30.0
 request_timeout_seconds = 1.5
 unit_ids = [1]
 max_tcp_concurrency = 32
+# Number of consecutive poll failures before a device is treated as offline.
+failure_threshold = 3
+# Failed/offline devices retry with exponential backoff between these bounds.
+retry_backoff_initial_seconds = 2.0
+retry_backoff_max_seconds = 60.0
 
 [serial]
 enabled = true
