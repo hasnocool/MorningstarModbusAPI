@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from threading import Lock
-from typing import Any
+from typing import Any, Callable
 
 from morningstar_modbus.models import ModbusExchange
 
@@ -184,6 +185,129 @@ class PollingBenchmarkReport:
             "fastest_tested_interval_seconds": self.fastest_tested_interval_seconds,
             "stages": [stage.to_dict() for stage in self.stages],
         }
+
+
+class PollPersistenceLimiter:
+    """Rate-limit poll-driven persistence while allowing faster in-memory polling."""
+
+    def __init__(
+        self,
+        interval_seconds: float,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        if interval_seconds <= 0:
+            raise ValueError("persistence interval must be positive")
+        self.interval_seconds = interval_seconds
+        self._clock = clock
+        self._last_write: dict[str, float] = {}
+
+    def should_persist(self, controller_id: str) -> bool:
+        now = self._clock()
+        previous = self._last_write.get(controller_id)
+        if previous is not None and now - previous < self.interval_seconds:
+            return False
+        self._last_write[controller_id] = now
+        return True
+
+    def forget(self, controller_id: str) -> None:
+        self._last_write.pop(controller_id, None)
+
+
+class AutoPollIntervalController:
+    """Select a safe global watcher interval from live full-profile poll evidence.
+
+    Auto mode deliberately reuses the same staged benchmark criteria as the CLI.
+    It starts at the slowest configured benchmark stage, collects a complete sample
+    window for every currently-present controller, and only then tries the next
+    faster stage. If a stage fails it locks to the last passing stage. If the first
+    stage fails, the configured conservative fallback is used.
+    """
+
+    def __init__(
+        self,
+        intervals_seconds: list[float] | tuple[float, ...],
+        *,
+        samples_per_interval: int,
+        thresholds: BenchmarkThresholds,
+        fallback_interval_seconds: float,
+    ) -> None:
+        intervals = tuple(sorted({float(value) for value in intervals_seconds}, reverse=True))
+        if not intervals:
+            raise ValueError("auto polling requires at least one interval")
+        if samples_per_interval < 3:
+            raise ValueError("auto polling requires at least three samples per interval")
+        if fallback_interval_seconds < intervals[0]:
+            raise ValueError("auto polling fallback must be at least as slow as the first interval")
+        self.intervals_seconds = intervals
+        self.samples_per_interval = samples_per_interval
+        self.thresholds = thresholds
+        self.fallback_interval_seconds = float(fallback_interval_seconds)
+        self._stage_index = 0
+        self._last_safe_interval: float | None = None
+        self._locked_interval: float | None = None
+        self._samples: dict[str, list[PollPerformanceSample]] = {}
+
+    @property
+    def current_interval_seconds(self) -> float:
+        if self._locked_interval is not None:
+            return self._locked_interval
+        return self.intervals_seconds[self._stage_index]
+
+    @property
+    def calibrating(self) -> bool:
+        return self._locked_interval is None
+
+    def reset(self) -> None:
+        self._stage_index = 0
+        self._last_safe_interval = None
+        self._locked_interval = None
+        self._samples.clear()
+
+    def observe(
+        self,
+        samples: dict[str, PollPerformanceSample],
+        controller_ids: set[str],
+    ) -> str | None:
+        if self._locked_interval is not None or not controller_ids:
+            return None
+
+        for controller_id in controller_ids:
+            sample = samples.get(controller_id)
+            if sample is not None:
+                self._samples.setdefault(controller_id, []).append(sample)
+
+        if any(
+            len(self._samples.get(controller_id, ())) < self.samples_per_interval
+            for controller_id in controller_ids
+        ):
+            return None
+
+        interval = self.current_interval_seconds
+        failures: list[str] = []
+        for controller_id in sorted(controller_ids):
+            stage_samples = self._samples[controller_id][-self.samples_per_interval :]
+            stage = evaluate_benchmark_stage(interval, stage_samples, self.thresholds)
+            if not stage.passed:
+                failures.append(f"{controller_id}: {', '.join(stage.reasons)}")
+        self._samples.clear()
+
+        if failures:
+            selected = self._last_safe_interval or self.fallback_interval_seconds
+            self._locked_interval = selected
+            return (
+                f"auto polling stopped at {interval:g}s; using {selected:g}s because "
+                + "; ".join(failures)
+            )
+
+        self._last_safe_interval = interval
+        if self._stage_index + 1 < len(self.intervals_seconds):
+            next_interval = self.intervals_seconds[self._stage_index + 1]
+            self._stage_index += 1
+            return f"auto polling stage {interval:g}s passed; testing {next_interval:g}s"
+
+        self._locked_interval = interval
+        return f"auto polling selected {interval:g}s after all configured stages passed"
 
 
 def summarize_performance(samples: list[PollPerformanceSample]) -> dict[str, Any]:
