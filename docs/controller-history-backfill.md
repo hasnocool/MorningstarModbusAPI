@@ -29,7 +29,9 @@ The raw LiveView values are stored in `raw_json` alongside normalized fields. Pr
 
 ## Reconnect behavior
 
-A history sync is scheduled only after a normal live Modbus poll succeeds. It runs in its own asyncio task, so backfill HTTP I/O never blocks the Modbus polling loop.
+A history sync is scheduled after a normal live Modbus poll succeeds. It runs in its own asyncio task, so backfill HTTP I/O never blocks the Modbus polling loop.
+
+The trigger is the **live Modbus result**, not whether that particular poll happened to be selected for normal telemetry persistence. When the watcher is polling faster than `database.telemetry_write_interval_seconds`, a successful in-memory poll can therefore schedule startup/reconnect backfill even if no new `poll_samples` row is written for that exact attempt.
 
 ```text
 controller offline
@@ -38,7 +40,9 @@ controller offline
 controller rediscovered
       |
       v
-successful live Modbus poll -----> normal poll stored immediately
+successful live Modbus poll
+      |
+      +---- normal watcher persistence if cadence is due
       |
       `---- background LiveView sync
                  |
@@ -60,9 +64,9 @@ Repeated syncs are idempotent because daily records use `(device_id, controller_
 
 ## Gap semantics
 
-`controller_daily_history.live_sample_count` records how many normal poll samples fall inside the controller day's stored UTC start/end boundaries at synchronization time. A completed controller day with zero live samples is exposed as `fills_full_day_gap=true`.
+`controller_daily_history.live_sample_count` records how many **persisted** normal poll samples fall inside the controller day's stored UTC start/end boundaries at synchronization time. A completed controller day with zero persisted live samples is exposed as `fills_full_day_gap=true`.
 
-This does **not** imply that missing five-second or one-minute observations were reconstructed. The controller record is a daily summary and remains explicitly identified as `source=liveview-http`.
+This does **not** imply that missing five-second or one-minute observations were reconstructed, nor does it prove that no in-memory Modbus reads occurred during that day. The controller record is a daily summary and remains explicitly identified as `source=liveview-http`.
 
 The current day (`day_offset=0`) is stored as incomplete and is never counted as a filled full-day gap.
 
@@ -127,7 +131,7 @@ max_response_bytes = 1048576
 
 Operational notes:
 
-- backfill is independent of the normal Modbus poll interval;
+- backfill is independent of the normal Modbus poll interval and normal watcher telemetry-persistence cadence;
 - a slow/unreachable LiveView page does not block live telemetry acquisition;
 - `max_response_bytes` bounds the HTTP body accepted from the controller;
 - `max_days` limits processing but cannot create records that the controller no longer retains.
@@ -136,16 +140,16 @@ Operational notes:
 
 Live telemetry remains the priority. If the LiveView page is unavailable, times out, exceeds the configured response cap, or changes to an unrecognized format, the background sync records an error in `controller_history_syncs` and exits without changing raw poll history.
 
-A later restart or reconnection can attempt synchronization again. Existing successful raw telemetry remains untouched regardless of backfill failure.
+A later restart or reconnection can attempt synchronization again. Existing successful persisted telemetry remains untouched regardless of backfill failure.
 
 ## Provenance boundary
 
 Controller-retained history is a distinct source class from live Modbus samples. It should be used to answer questions such as:
 
-- what daily min/max/energy/event summary did the controller retain for a day we missed locally?
+- what daily min/max/energy/event summary did the controller retain for a day we missed in persisted local history?
 - how many complete days are available from the controller's onboard history?
-- did a restart/reconnect recover a full-day visibility gap?
+- did a restart/reconnect recover a full-day persisted-visibility gap?
 
-It should **not** be used to claim exact intra-day telemetry that the controller did not retain.
+It should **not** be used to claim exact intra-day telemetry that the controller did not retain or to infer that no unstored in-memory Modbus reads occurred.
 
 For route/query details see [`api.md`](api.md). For the relationship between retained history and raw telemetry, see [`telemetry-history.md`](telemetry-history.md).

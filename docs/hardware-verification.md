@@ -129,6 +129,8 @@ morningstar-modbus verify \
 - final result;
 - warnings in JSON output.
 
+Metadata values use the same catalog decoders as normal operation. For example, TriStar MPPT `hardware_version` uses the vendor-defined major/minor byte layout (`0x0101` -> `1.1`) rather than reporting the raw word as decimal `257`.
+
 The current report does **not** embed catalog revision or the independent catalog verification-evidence object. The catalog revision is persisted with device intelligence where applicable, while the independent verification-evidence object is available through `/v1/catalog` and `/v1/catalog/{profile_name}` rather than `/v1/devices/intelligence`.
 
 The human-readable renderer focuses on identity, confidence, block/register coverage, and the final result. Use `--json` when warning messages are needed programmatically.
@@ -200,7 +202,7 @@ tests/fixtures/morningstar/
         └── fw-29-physical/
 ```
 
-## Device lifecycle and reconnect verification
+## Device lifecycle, polling cadence, and persistence
 
 The watcher maintains this lifecycle **in memory**:
 
@@ -220,7 +222,7 @@ discovered → connecting → online → degraded → offline → rediscovering 
 - `retry_in_seconds`;
 - an internal monotonic next-retry deadline used by `can_poll()`.
 
-Repeated failures use exponential backoff. A failed client is closed so the next eligible poll creates a fresh connection. A device absent from the latest discovery result enters `rediscovering` unless it is already `offline`; an already-offline device remains `offline`. In either case its client is closed and it is not polled until rediscovered or otherwise eligible again.
+Repeated **Modbus** failures use exponential backoff. A failed client is closed so the next eligible poll creates a fresh connection. A device absent from the latest discovery result enters rediscovery behavior unless it is already `offline`; an already-offline device remains `offline`. In either case its client is closed and it is not polled until rediscovered or otherwise eligible again.
 
 ```toml
 [watch]
@@ -229,6 +231,18 @@ retry_backoff_initial_seconds = 2.0
 retry_backoff_max_seconds = 60.0
 ```
 
-The detailed lifecycle is **not currently persisted** to SQLite and is not exposed as a dedicated API endpoint. SQLite's `devices` table separately stores `status`, `last_seen`, and `last_error`; the storage-level status is currently `online` after discovery/successful polls and `error` after a saved poll failure.
+The detailed lifecycle is **not currently persisted** to SQLite and is not exposed as a dedicated API endpoint. SQLite separately stores device/controller presence, telemetry/history, errors, identity, and performance evidence.
 
-Future hardware-in-the-loop tests should cover cable unplug/replug, USB path changes, TCP interruption, device reboot, endpoint movement, and recovery after backoff without adding any controller write operation.
+Current watcher persistence is deliberately slower-capable than live polling. `database.telemetry_write_interval_seconds` has a minimum value of `1.0`, so a controller can be polled several times between persisted telemetry/performance/error opportunities. This means:
+
+- not every successful live poll creates a `poll_samples` row;
+- not every failed live poll necessarily creates a persisted error/performance row;
+- lifecycle transitions still use every actual Modbus poll result;
+- automatic interval evaluation still uses every live poll result;
+- a database write failure after a successful Modbus read is logged separately and does **not** mark the controller communication lifecycle failed.
+
+Discovery/reconciliation presence writes, shutdown/offline state, retained-history backfill, and explicit benchmark persistence are separate paths and are not a literal global one-write-per-second database cap.
+
+See [`polling-performance.md`](polling-performance.md) and [`telemetry-history.md`](telemetry-history.md) for the exact cadence contract.
+
+Future hardware-in-the-loop tests should cover cable unplug/replug, USB path changes, TCP interruption, device reboot, endpoint movement, recovery after backoff, and storage failures without adding any controller write operation.

@@ -1,6 +1,6 @@
 # HTTP API guide
 
-MorningstarModbusAPI exposes a read-only FastAPI service over persisted telemetry, controller identity, history, polling performance, catalog metadata, and verification evidence.
+MorningstarModbusAPI exposes a read-only FastAPI service over persisted telemetry, controller identity, history, polling performance, catalog metadata, effective register semantics, and verification evidence.
 
 For new integrations, use the **controller-first API** under `/v1/controllers`. The older `/v1/devices` routes remain supported for backward compatibility and raw storage-level inspection.
 
@@ -181,7 +181,7 @@ GET /v1/controllers/{controller_uid}/polling/history
 
 The `mode` query parameter accepts:
 
-- `watch` — normal watcher polling;
+- `watch` — persisted samples from normal watcher polling;
 - `benchmark` — samples from `benchmark-polling`;
 - `all` — both modes.
 
@@ -192,6 +192,10 @@ curl 'http://127.0.0.1:8080/v1/controllers/ctrl_0123456789abcdef0123456789abcdef
 
 curl 'http://127.0.0.1:8080/v1/controllers/ctrl_0123456789abcdef0123456789abcdef/polling/history?mode=benchmark&limit=100'
 ```
+
+Watcher performance rows follow the normal watcher persistence cadence. If the service is polling a controller faster than `database.telemetry_write_interval_seconds`, the API's watcher `poll_rate_hz` describes persisted performance rows and is not necessarily the instantaneous in-memory Modbus read rate used by automatic interval evaluation.
+
+Explicit `benchmark-polling` persistence is separate and can record at the requested benchmark cadence. Use `--no-persist` to avoid storing benchmark samples.
 
 See [`polling-performance.md`](polling-performance.md).
 
@@ -228,7 +232,7 @@ If a history query is too large, the API returns HTTP `413`. Narrow the time ran
 | Status | Meaning |
 | --- | --- |
 | `400` | Invalid timestamp, range, order, resolution, mode, export format, or other query input |
-| `404` | Unknown controller/device/catalog profile, or no latest sample where a latest record was requested |
+| `404` | Unknown controller/device/catalog profile, missing intelligence, or no latest sample where a latest record was requested |
 | `413` | A bounded JSON history query exceeds the allowed point count |
 
 The service does not return HTTP mutation endpoints because controller writes are outside the project contract.
@@ -248,6 +252,51 @@ GET /v1/devices/profile/validation?device_id=...
 ```
 
 The `{device_id:path}` route intentionally supports device IDs containing `/`.
+
+### Effective register map and reserved ranges
+
+`GET /v1/devices/register-map?device_id=...` uses the persisted intelligence profile and firmware to build the effective catalog view for that exact device.
+
+The response contains:
+
+- `profile`, `family`, `catalog_revision`, and resolved `firmware`;
+- firmware-applicable read `blocks`;
+- firmware-applicable named `registers`;
+- firmware-applicable `reserved_ranges`.
+
+A reserved range is not a missing semantic mapping. It means Morningstar explicitly documents one or more words inside a readable block as reserved. Broad profile reads can still retain those words under raw evidence names such as `holding_0x003F`, but consumers should not assign a semantic label to them.
+
+Example shape:
+
+```json
+{
+  "profile": "tristar_mppt",
+  "firmware": "32",
+  "reserved_ranges": [
+    {
+      "address": 5,
+      "count": 19,
+      "function": "holding",
+      "description": "Reserved RAM words 0x0005-0x0017 in the TriStar MPPT v11 map."
+    }
+  ],
+  "registers": [
+    {
+      "name": "battery_voltage",
+      "address": 24,
+      "function": "holding",
+      "words": 1,
+      "decoder": "tristar_voltage",
+      "unit": "V",
+      "category": "telemetry"
+    }
+  ]
+}
+```
+
+The actual response also includes firmware-gate fields on blocks/registers/reserved ranges. Frontends should prefer named registers for semantic telemetry, suppress duplicate raw aliases that overlap named or reserved addresses, and keep genuinely unknown raw addresses visible when diagnostic evidence is desired.
+
+For the TriStar MPPT v11 catalog, documented reserved spans currently include `0x0005-0x0017`, `0x002D`, `0x003F`, `0x004A`, and `0xE0C4-0xE0CB`. These are source-backed catalog facts rather than heuristic UI exclusions.
 
 ### Raw-device telemetry and history
 
@@ -274,7 +323,19 @@ GET /v1/catalog
 GET /v1/catalog/{profile_name}
 ```
 
-Catalog responses describe declarative product/register knowledge and independent verification metadata. They are separate from runtime controller/device intelligence.
+Catalog responses describe declarative product/register knowledge and independent verification metadata. Detailed profile responses include named register definitions, read blocks, and any source-backed `reserved_ranges`. They are separate from runtime controller/device intelligence.
+
+The detailed catalog is the family-level declaration; `/v1/devices/register-map` is the firmware-filtered device-specific effective view.
+
+## Polling versus persistence
+
+The HTTP service exposes persisted data. Normal watcher polling can happen more frequently than SQLite history/performance rows are written.
+
+`database.telemetry_write_interval_seconds` has a minimum of `1.0` second and limits normal poll-driven persistence per physical controller. A numeric watcher interval such as `0.2` seconds or an automatically selected sub-second stage can therefore produce several live reads between persisted snapshots.
+
+This distinction affects interpretation of latest/history/performance timestamps but not the read-only transport behavior. Event-driven presence/identity updates and retained-history backfill have their own persistence paths, and explicit benchmark persistence is independent of the watcher limiter.
+
+A database persistence failure is logged as a storage problem; it does not retroactively make a successful Modbus read a controller communication failure or force lifecycle reconnect/backoff by itself.
 
 ## Read-only safety boundary
 

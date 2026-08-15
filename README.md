@@ -2,11 +2,11 @@
 
 MorningstarModbusAPI is a read-only Morningstar Modbus telemetry service for USB / RS-232 / RS-485 (RTU) and Modbus TCP/IP devices.
 
-It discovers Morningstar hardware, identifies it conservatively, reads and decodes telemetry, persists raw and interpreted observations in SQLite, reconciles changing USB/IP endpoints into stable physical-controller identities, and exposes both controller-first and legacy device-scoped HTTP APIs. The project also includes polling-performance instrumentation, controller-retained daily-history backfill, hardware verification, and exact capture/replay tooling.
+It discovers Morningstar hardware, identifies it conservatively, reads and decodes telemetry, persists raw and interpreted observations in SQLite, reconciles changing USB/IP endpoints into stable physical-controller identities, and exposes both controller-first and legacy device-scoped HTTP APIs. The project also includes automatic polling-rate selection, polling-performance instrumentation, controller-retained daily-history backfill, hardware verification, exact capture/replay tooling, and source-backed register-catalog maintenance.
 
 The project does **not** expose Modbus write operations. Vendor specifications may document writable registers and coils, but the runtime remains a read-only boundary.
 
-> **Development status:** the latest published release is **v0.3.0**. Current `main` contains substantial merged work after that release, including lifecycle/reconnect improvements, richer history queries/exports, controller-retained daily-history backfill, polling benchmarking, physical-controller identity, immutable controller UIDs, and controller-scoped history.
+> **Development status:** the latest published release is **v0.3.0**. Current `main` contains substantial merged work after that release, including lifecycle/reconnect improvements, richer history queries/exports, controller-retained daily-history backfill, polling benchmarking and automatic interval selection, a one-second minimum watcher persistence cadence, physical-controller identity, immutable controller UIDs, controller-scoped history, and explicit manufacturer-reserved register metadata.
 
 ## Current capabilities
 
@@ -15,13 +15,15 @@ The project does **not** expose Modbus write operations. Vendor specifications m
 - Modbus TCP over explicit hosts or explicitly configured bounded local CIDRs.
 - Standard Modbus Read Device Identification (`0x2B / 0x0E`) when supported.
 - Conservative read-only family fingerprints for older devices that do not provide useful identification.
-- A Morningstar-wide declarative catalog with product-specific register maps, scaling, enums, alarms, faults, metadata, communications capabilities, firmware gates, and source references.
+- A Morningstar-wide declarative catalog with product-specific register maps, scaling, enums, alarms, faults, metadata, communications capabilities, firmware gates, source references, and explicit reserved-register ranges.
 - Device intelligence combining identity, metadata reads, firmware compatibility, capability negotiation, confidence scoring, and post-poll plausibility validation.
+- Firmware-aware effective register maps that distinguish named semantic registers, documented manufacturer-reserved words, and genuinely unknown raw addresses.
 - Persistent physical-controller inventory with connection history and endpoint-reuse protection.
 - Generated immutable `controller_uid` values that survive DHCP changes, USB path changes, transport changes, and identity-evidence promotion.
 - Controller-scoped history that combines pre-migration `device_id` segments while preserving `source_device_id` provenance.
 - In-memory lifecycle tracking with stale-client cleanup, reconnect detection, bounded exponential backoff, and one selected polling connection per physical controller.
-- SQLite/WAL telemetry history using non-blocking `aiosqlite` access.
+- Numeric polling intervals or automatic staged interval selection using the same measured thresholds as `benchmark-polling`.
+- SQLite/WAL telemetry history using non-blocking `aiosqlite` access, with normal watcher poll-driven persistence limited to no faster than once per second per physical controller.
 - Multi-register history, numeric/state-aware aggregation, statistics, summaries, and streaming CSV/JSONL export.
 - Polling-performance instrumentation plus a safe staged `benchmark-polling` command.
 - Provenance-aware recovery of supported controller-retained daily history after startup/reconnect without fabricating raw poll samples.
@@ -33,7 +35,7 @@ The project does **not** expose Modbus write operations. Vendor specifications m
 
 ## Identity model: controllers vs devices
 
-The service now has three related identifiers:
+The service has three related identifiers:
 
 | Identifier | Meaning | Stability / intended use |
 | --- | --- | --- |
@@ -44,6 +46,20 @@ The service now has three related identifiers:
 For new integrations, start with `GET /v1/controllers` and persist `controller_uid`. Controller-scoped history automatically spans all historical member `device_id` values for that physical controller. The older `/v1/devices/...` API remains available when an application intentionally needs one raw storage segment.
 
 See [`docs/controller-scoped-data.md`](docs/controller-scoped-data.md) and [`docs/api.md`](docs/api.md).
+
+## Register semantics: named, reserved, and unknown
+
+Broad Modbus block reads can contain words that the manufacturer deliberately marks as reserved. Those words are preserved as raw evidence, but they are not missing semantic mappings and should not be assigned invented names.
+
+The catalog can declare `ReservedRegisterRange` entries alongside named `RegisterSpec` values. Device-specific effective register maps therefore expose three useful classes:
+
+1. **named semantic registers** — source-backed fields with decoding/unit/category metadata;
+2. **documented reserved ranges** — readable words intentionally left unnamed by Morningstar;
+3. **genuinely unknown raw addresses** — observations not covered by a named field or documented reserved range.
+
+For the TriStar MPPT 150V v11 map, current source-backed reserved spans include `0x0005-0x0017`, `0x002D`, `0x003F`, `0x004A`, and `0xE0C4-0xE0CB`. The hardware revision at `0xE0CD` is decoded from its major/minor bytes (for example raw `0x0101` becomes `1.1`) rather than exposed as decimal `257`.
+
+Consumers should prefer the semantic register map and treat raw aliases as evidence, not as proof that a semantic name is missing. See [`docs/device-catalog.md`](docs/device-catalog.md) and [`docs/device-intelligence.md`](docs/device-intelligence.md).
 
 ## Package layout
 
@@ -58,7 +74,7 @@ src/morningstar_modbus/
 ├── controller_inventory.py           # evidence-derived identity + connection inventory
 ├── controller_data.py                # controller-scoped history/query/aggregation layer
 ├── controller_history_*.py           # retained daily-history retrieval/storage/backfill
-├── polling.py / polling_storage.py   # performance metrics and benchmark persistence
+├── polling.py / polling_storage.py   # auto tuning, performance metrics, persistence cadence, benchmark data
 ├── capture.py                        # read-only capture bundle writer
 ├── replay.py                         # strict capture replay client
 ├── verification.py                   # live/replay verification report generation
@@ -131,9 +147,33 @@ morningstar-modbus --config config.toml run
 
 By default the API binds to `127.0.0.1:8080`.
 
+### Poll automatically without writing history at the same rate
+
+`[watch].poll_interval_seconds` accepts either a positive number or `"auto"`:
+
+```toml
+[database]
+telemetry_write_interval_seconds = 1.0
+
+[watch]
+poll_interval_seconds = "auto"
+
+[poll_benchmark]
+intervals_seconds = [1.0, 0.5, 0.25]
+auto_fallback_interval_seconds = 5.0
+```
+
+Auto mode starts at the conservative fallback, evaluates every currently-present controller, and advances through configured stages only when all controllers pass the existing success/latency/deadline/request-failure/RTU-utilization thresholds. A topology/profile change resets calibration to the fallback before faster stages are tested again.
+
+Numeric sub-second polling is still supported. Normal watcher poll-driven persistence is separately limited by `database.telemetry_write_interval_seconds`, which cannot be configured below `1.0` second. Therefore a controller can be read at 0.2-second intervals while raw history is stored at most once per second for that controller. Intermediate reads still update in-memory lifecycle/intelligence and feed auto calibration.
+
+Database persistence failures are logged separately and do not convert an otherwise successful Modbus read into a controller communication failure. Event-driven identity/presence updates, retained-history backfill, and explicit benchmark persistence are separate from the normal watcher cadence limiter.
+
+See [`docs/polling-performance.md`](docs/polling-performance.md) and [`docs/telemetry-history.md`](docs/telemetry-history.md).
+
 ### Benchmark safe polling intervals
 
-Before lowering the normal poll interval, measure a real controller with the same read-only profile path:
+Before choosing an aggressive fixed poll interval, measure a real controller with the same read-only profile path:
 
 ```bash
 morningstar-modbus --config config.toml benchmark-polling \
@@ -142,7 +182,7 @@ morningstar-modbus --config config.toml benchmark-polling \
   --samples 12
 ```
 
-The benchmark tests configured stages from slower to faster and stops at the first stage that violates configured success, latency, deadline, request-failure, or RTU bus-utilization thresholds. Persisted benchmark samples are associated with the same immutable physical-controller identity used by the watcher.
+The benchmark tests configured stages from slower to faster and stops at the first stage that violates configured success, latency, deadline, request-failure, or RTU bus-utilization thresholds. Persisted benchmark samples are associated with the same immutable physical-controller identity used by the watcher. Use `--no-persist` when benchmark evidence should not be stored.
 
 See [`docs/polling-performance.md`](docs/polling-performance.md).
 
@@ -217,7 +257,7 @@ retry_backoff_initial_seconds = 2.0
 retry_backoff_max_seconds = 60.0
 ```
 
-The detailed `DeviceLifecycle` object is still runtime-only. SQLite persists simpler online/error/offline device/controller presence plus identity, connection, telemetry, history, and performance data.
+The detailed `DeviceLifecycle` object is runtime-only. SQLite persists simpler online/error/offline device/controller presence plus identity, connection, telemetry, history, and performance data. Live lifecycle success/failure is based on the Modbus result; a telemetry-database write failure is a separate storage problem and does not trigger reconnect/backoff by itself.
 
 ## Controller-retained daily-history backfill
 
@@ -251,8 +291,8 @@ For new applications, prefer the **controller-first** API. It remains continuous
 | `GET /v1/controllers/{controller_uid}/history/controller-daily` | Controller-retained daily history |
 | `GET /v1/controllers/{controller_uid}/history/controller-daily/summary` | Retained-history coverage summary |
 | `GET /v1/controllers/{controller_uid}/history/export` | Streaming CSV/JSONL history export |
-| `GET /v1/controllers/{controller_uid}/polling/performance` | Polling-performance summary |
-| `GET /v1/controllers/{controller_uid}/polling/history` | Polling-performance samples |
+| `GET /v1/controllers/{controller_uid}/polling/performance` | Persisted polling-performance summary |
+| `GET /v1/controllers/{controller_uid}/polling/history` | Persisted polling-performance samples |
 
 Raw controller-scoped history includes `source_device_id`, so combining old storage segments does not erase provenance.
 
@@ -262,7 +302,7 @@ Raw controller-scoped history includes `source_device_id`, so combining old stor
 | --- | --- |
 | `GET /health` | Liveness and package version |
 | `GET /v1/catalog` | Compact Morningstar catalog summary including verification metadata |
-| `GET /v1/catalog/{profile_name}` | Detailed profile/register definition plus verification metadata |
+| `GET /v1/catalog/{profile_name}` | Detailed profile/register definition, reserved ranges, and verification metadata |
 | `GET /v1/devices` | Raw persisted endpoint/device records for backward compatibility |
 | `GET /v1/devices/{device_id}` | One raw persisted device row; path form supports IDs containing `/` |
 | `GET /v1/devices/latest?device_id=...` | Latest sample for one raw device ID |
@@ -273,14 +313,14 @@ Raw controller-scoped history includes `source_device_id`, so combining old stor
 | `GET /v1/devices/history/summary?device_id=...` | One raw-device history summary |
 | `GET /v1/devices/history/controller-daily?device_id=...` | Retained daily records attached to one device ID |
 | `GET /v1/devices/history/export?device_id=...` | Streaming raw-device history export |
-| `GET /v1/devices/polling/performance?device_id=...` | Raw-device polling summary |
-| `GET /v1/devices/polling/history?device_id=...` | Raw-device polling samples |
+| `GET /v1/devices/polling/performance?device_id=...` | Persisted raw-device polling summary |
+| `GET /v1/devices/polling/history?device_id=...` | Persisted raw-device polling samples |
 | `GET /v1/devices/intelligence?device_id=...` | Persisted identity/firmware/capability evidence |
-| `GET /v1/devices/register-map?device_id=...` | Effective firmware-filtered register map |
+| `GET /v1/devices/register-map?device_id=...` | Effective firmware-filtered blocks, named registers, and documented reserved ranges |
 | `GET /v1/devices/profile/validation?device_id=...` | Confidence, intelligence status, evidence, and warnings |
 | `GET /docs` | Swagger/OpenAPI UI |
 
-See [`docs/api.md`](docs/api.md) for query semantics, resolutions, limits, exports, identifiers, and examples.
+See [`docs/api.md`](docs/api.md) for query semantics, resolutions, limits, exports, identifiers, register-map semantics, and examples.
 
 ## Evidence and fixture policy
 
