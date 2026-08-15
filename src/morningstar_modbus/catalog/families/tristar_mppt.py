@@ -208,7 +208,7 @@ TRISTAR_MPPT = DeviceProfileSpec(
             decoder="u32",
             category="alarm",
             bits=TRISTAR_MPPT_ALARMS,
-            description="Currently active controller alarm conditions decoded from the two-word alarm bitfield.",
+            description="Active controller alarms decoded from the two-word alarm bitfield.",
         ),
         RegisterSpec(
             "dip_switches",
@@ -258,7 +258,7 @@ TRISTAR_MPPT = DeviceProfileSpec(
             "charge_kwh_resettable",
             0x0038,
             unit="kWh",
-            description="Solar charging energy accumulated since the resettable energy counters were cleared.",
+            description="Solar charging energy since the resettable counters were cleared.",
         ),
         RegisterSpec(
             "charge_kwh_total",
@@ -334,7 +334,7 @@ TRISTAR_MPPT = DeviceProfileSpec(
             0x0044,
             decoder="ufactor:10",
             unit="Wh",
-            description="Total charging energy accumulated today; the controller reports this in 10 Wh steps.",
+            description="Charging energy today; the controller reports in 10 Wh steps.",
         ),
         RegisterSpec(
             "daily_flags",
@@ -369,7 +369,7 @@ TRISTAR_MPPT = DeviceProfileSpec(
             0x0049,
             category="fault",
             bits=TRISTAR_MPPT_FAULTS,
-            description="Sticky fault conditions that occurred at least once during the current charging day.",
+            description="Sticky fault conditions recorded during the current charging day.",
         ),
         RegisterSpec(
             "daily_alarms",
@@ -378,7 +378,7 @@ TRISTAR_MPPT = DeviceProfileSpec(
             decoder="u32",
             category="alarm",
             bits=TRISTAR_MPPT_ALARMS,
-            description="Sticky alarm conditions that occurred at least once during the current charging day.",
+            description="Sticky alarm conditions recorded during the current charging day.",
         ),
         RegisterSpec(
             "daily_absorption_seconds",
