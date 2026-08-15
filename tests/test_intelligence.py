@@ -4,7 +4,12 @@ from pathlib import Path
 import pytest
 
 from morningstar_modbus.catalog.compatibility import compare_versions, in_range
-from morningstar_modbus.catalog.types import DeviceProfileSpec, RegisterBlock, RegisterSpec
+from morningstar_modbus.catalog.types import (
+    DeviceProfileSpec,
+    RegisterBlock,
+    RegisterSpec,
+    ReservedRegisterRange,
+)
 from morningstar_modbus.intelligence import (
     DeviceIntelligence,
     effective_register_map,
@@ -22,7 +27,7 @@ class TriStarMetadataClient:
             words = [0] * 14
             words[0:4] = [0x4241, 0x3143, 0x3332, 0x0034]
             words[12] = 1
-            words[13] = 2
+            words[13] = 0x0102
             return words
         if count == 1 and address in {0x0000, 0x0001, 0x0002, 0x0003}:
             return [0]
@@ -57,7 +62,7 @@ async def test_resolver_combines_identity_metadata_and_catalog() -> None:
     assert intelligence.model == "TS-MPPT-60"
     assert intelligence.serial_number == "ABC1234"
     assert intelligence.firmware == "29"
-    assert intelligence.hardware_revision == "2"
+    assert intelligence.hardware_revision == "1.2"
     assert intelligence.status == "verified"
     assert intelligence.confidence >= 0.85
     assert "modbus_tcp" in intelligence.capabilities
@@ -87,6 +92,10 @@ def test_effective_map_applies_firmware_gates() -> None:
             RegisterSpec("always", 0),
             RegisterSpec("new", 10, since_firmware="2.0"),
         ),
+        reserved_ranges=(
+            ReservedRegisterRange(5),
+            ReservedRegisterRange(15, since_firmware="2.0"),
+        ),
     )
     PROFILE_BY_NAME[spec.name] = spec
     try:
@@ -98,6 +107,23 @@ def test_effective_map_applies_firmware_gates() -> None:
     assert old is not None and new is not None
     assert {item["name"] for item in old["registers"]} == {"always"}
     assert {item["name"] for item in new["registers"]} == {"always", "new"}
+    assert {item["address"] for item in old["reserved_ranges"]} == {5}
+    assert {item["address"] for item in new["reserved_ranges"]} == {5, 15}
+
+
+def test_tristar_effective_map_marks_documented_reserved_words() -> None:
+    register_map = effective_register_map("tristar_mppt", "32")
+    assert register_map is not None
+
+    reserved_addresses = {
+        address
+        for item in register_map["reserved_ranges"]
+        for address in range(int(item["address"]), int(item["address"]) + int(item["count"]))
+    }
+
+    assert set(range(0x0005, 0x0018)).issubset(reserved_addresses)
+    assert {0x002D, 0x003F, 0x004A}.issubset(reserved_addresses)
+    assert set(range(0xE0C4, 0xE0CC)).issubset(reserved_addresses)
 
 
 def test_implausible_telemetry_invalidates_profile() -> None:
