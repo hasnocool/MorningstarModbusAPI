@@ -8,9 +8,10 @@
 | [`telemetry-history.md`](telemetry-history.md) | Raw telemetry retention, time ranges, multi-register history, aggregation, statistics, and streaming export |
 | [`controller-history-backfill.md`](controller-history-backfill.md) | Provenance-aware recovery of controller-retained daily history after startup/reconnect without fabricating raw samples |
 | [`polling-performance.md`](polling-performance.md) | Full-profile polling instrumentation, persisted performance metrics, RTU utilization estimates, and safe interval benchmarking |
+| [`canonical-device-identity.md`](canonical-device-identity.md) | Persistent physical-controller identity, canonical telemetry IDs, connection history, endpoint reconciliation, and migration behavior |
 | [`device-catalog.md`](device-catalog.md) | Declarative Morningstar product profiles, firmware gates, verification registry, coverage, and extension rules |
 | [`device-intelligence.md`](device-intelligence.md) | Runtime identity resolution, metadata, confidence, capabilities, validation, and effective firmware register maps |
-| [`catalog-maintenance.md`](catalog-maintenance.md) | Official-source download/validation, conservative PDF extraction, advisory diffing, provenance, and CI review gates |
+| [`catalog-maintenance.md`](catalog-maintenance.md) | Official-source download/validation, conservative PDF extraction, advisory diffs, provenance, and CI review gates |
 
 ---
 
@@ -31,6 +32,9 @@ catalog declarations <---- replay client <---------+
 runtime intelligence   polling performance rows
         |             |
         v             v
+persistent controller identity + connection inventory
+        |
+        v
 watcher + in-memory lifecycle/backoff
         |
         v
@@ -41,6 +45,8 @@ SQLite/WAL persistence
         +----> history query/aggregation/export
         |
         +----> polling performance/history API
+        |
+        +----> physical controller inventory API
         |
         v
 FastAPI /v1
@@ -54,7 +60,7 @@ catalog declarations ---- official source index
 verification registry        advisory report
 ```
 
-Capture/replay is part of the runtime verification path, while vendor-document maintenance remains a separate sidecar. Verification evidence is deliberately kept outside vendor-derived family modules. The raw history layer queries existing immutable poll/register rows and does not replace them with lossy rollups. Controller-retained daily records are persisted separately with explicit source/retrieval provenance. Polling instrumentation observes the same read-only Modbus exchanges used by normal profile polling and stores performance separately from controller telemetry.
+Capture/replay is part of the runtime verification path, while vendor-document maintenance remains a separate sidecar. Verification evidence is deliberately kept outside vendor-derived family modules. The raw history layer queries existing immutable poll/register rows and does not replace them with lossy rollups. Controller-retained daily records are persisted separately with explicit source/retrieval provenance. Polling instrumentation observes the same read-only Modbus exchanges used by normal profile polling and stores performance separately from controller telemetry. Persistent controller identity prevents future IP/USB locator changes from creating another telemetry ID while retaining pre-migration member IDs as historical aliases.
 
 ## Evidence model
 
@@ -67,6 +73,8 @@ Capture/replay is part of the runtime verification path, while vendor-document m
 
 A profile must not be promoted across tiers without matching evidence. The catalog reports the current tier for each profile.
 
+Controller identity/reconciliation confidence is separate from catalog verification tiers and product-profile intelligence confidence.
+
 ## Version note
 
-The latest published GitHub release is `v0.3.0`. The current development line includes hardware verification/capture/replay, lifecycle changes, richer time-series query/export, controller-retained daily-history backfill, and polling-performance instrumentation added after that release, so these documents describe current development rather than only the latest tagged release.
+The latest published GitHub release is `v0.3.0`. The current development line includes hardware verification/capture/replay, lifecycle changes, richer time-series query/export, controller-retained daily-history backfill, polling-performance instrumentation, physical-controller inventory, and persistent controller identity work added after that release, so these documents describe current development rather than only the latest tagged release.
