@@ -167,7 +167,9 @@ class ControllerInventoryRepository:
     async def initialize(self) -> None:
         async with aiosqlite.connect(self.path) as db:
             await db.executescript(_INVENTORY_SCHEMA)
-            await self._bootstrap_legacy_rows(db)
+            count = await (await db.execute("SELECT COUNT(*) FROM controller_identities")).fetchone()
+            if count is not None and int(count[0]) == 0:
+                await self._bootstrap_legacy_rows(db)
             await db.commit()
 
     async def _bootstrap_legacy_rows(self, db: aiosqlite.Connection) -> None:
@@ -180,6 +182,7 @@ class ControllerInventoryRepository:
             groups[controller_id].append(row)
             identities[controller_id] = (identity_source, identity_value)
 
+        now = datetime.now(UTC)
         for controller_id, group in groups.items():
             ordered = sorted(
                 group,
@@ -219,7 +222,7 @@ class ControllerInventoryRepository:
                     current.get("last_seen") or first_seen,
                 ),
             )
-            for row in ordered:
+            for index, row in enumerate(ordered):
                 await self._upsert_member(
                     db,
                     controller_id,
@@ -227,7 +230,17 @@ class ControllerInventoryRepository:
                     str(row.get("first_seen") or first_seen),
                     str(row.get("last_seen") or first_seen),
                 )
-                await self._upsert_connection_from_row(db, controller_id, row)
+                raw_status = str(row.get("status") or "offline").lower()
+                active = (
+                    index == 0
+                    and raw_status in {"online", "error"}
+                    and _is_fresh(
+                        row.get("last_seen"),
+                        now=now,
+                        grace_seconds=self.online_grace_seconds,
+                    )
+                )
+                await self._upsert_connection_from_row(db, controller_id, row, active=active)
 
     async def register_observation(self, device: DiscoveredDevice) -> tuple[str, str]:
         """Return ``(controller_id, canonical_device_id)`` for one discovery observation."""
@@ -327,7 +340,7 @@ class ControllerInventoryRepository:
         return controller_id, canonical_device_id
 
     async def reconcile_presence(self, observed: set[tuple[str, str]]) -> None:
-        """Mark connection activity from one complete discovery cycle."""
+        """Mark the selected/current connection from one complete discovery cycle."""
         await self.initialize()
         async with aiosqlite.connect(self.path) as db:
             await db.execute("UPDATE controller_connections SET active=0")
@@ -541,6 +554,8 @@ class ControllerInventoryRepository:
         db: aiosqlite.Connection,
         controller_id: str,
         row: dict[str, Any],
+        *,
+        active: bool,
     ) -> None:
         endpoint = Endpoint(
             transport="tcp" if row["transport"] == "tcp" else "serial",
@@ -559,7 +574,7 @@ class ControllerInventoryRepository:
             match_strategy="legacy",
             match_confidence=0.5,
             first_seen=str(row.get("first_seen") or row.get("last_seen") or datetime.now(UTC).isoformat()),
-            active=False,
+            active=active,
         )
 
     @staticmethod
