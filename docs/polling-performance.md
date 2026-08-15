@@ -15,7 +15,7 @@ A numeric value is used as the watcher target interval exactly as configured, in
 poll_interval_seconds = 0.2
 ```
 
-Automatic mode uses the configured benchmark stages and thresholds instead of a separate heuristic:
+Automatic mode uses a conservative baseline plus the configured benchmark stages and thresholds instead of a separate heuristic:
 
 ```toml
 [watch]
@@ -37,17 +37,18 @@ auto_fallback_interval_seconds = 5.0
 
 Auto mode is deliberately conservative and global to the watcher because `poll_interval_seconds` is currently a global watcher setting.
 
-1. The watcher starts at the slowest configured benchmark stage.
-2. It collects `samples_per_interval` complete live profile polls for every currently-present physical controller.
+1. The watcher starts at `auto_fallback_interval_seconds` (5 seconds by default) rather than immediately attempting a fast rate.
+2. It collects `samples_per_interval` complete live profile polls for every currently-present physical controller at that baseline.
 3. Each controller is evaluated with the same success-rate, p95-latency, deadline-miss, request-failure, and RTU-utilization rules used by `benchmark-polling`.
-4. The watcher moves to the next faster stage only when every present controller passes the current stage.
-5. At the first failed stage, it locks to the last passing interval.
-6. If the first stage itself fails, it uses `auto_fallback_interval_seconds`.
-7. If every configured stage passes, it locks to the fastest configured stage.
+4. Only after every present controller passes the baseline does the watcher test the configured stages from slowest to fastest: with the defaults, 1.0 → 0.5 → 0.25 seconds.
+5. The watcher advances again only when every present controller passes the current stage.
+6. At the first failed faster stage, it locks to the last interval that was actually proven safe.
+7. If the conservative baseline itself cannot satisfy the thresholds, the watcher stays at the fallback interval rather than attempting faster stages.
+8. If every configured stage passes, it locks to the fastest configured stage.
 
-For example, with `[1.0, 0.5, 0.25]`, if 1.0 seconds and 0.5 seconds pass but 0.25 seconds fails, the watcher settles at 0.5 seconds.
+For example, with a 5-second fallback and `[1.0, 0.5, 0.25]`, if 5.0, 1.0, and 0.5 seconds pass but 0.25 seconds fails, the watcher settles at 0.5 seconds.
 
-Auto calibration resets when the selected physical-controller/endpoint/profile set changes. This prevents a rate learned for one connection or controller set from being silently reused after a meaningful runtime topology change.
+Auto calibration resets when the selected physical-controller/endpoint/profile set changes. This prevents a rate learned for one connection or controller set from being silently reused after a meaningful runtime topology change. Resetting returns the watcher to the conservative fallback baseline before it tests faster stages again.
 
 The automatic tuner uses every live in-memory poll result, even when the database persistence cadence is slower than the polling cadence.
 
@@ -68,7 +69,7 @@ A poll-driven persistence cycle includes the telemetry sample/register values an
 
 This is a write-amplification and history-cadence safeguard. SQLite WAL and transactions already protect committed writes from ordinary high-frequency access; the one-second floor is not a claim that SQLite would otherwise inherently corrupt at 0.2 seconds. It instead gives the service a deliberate persistence boundary and reduces unnecessary disk churn.
 
-The one-second limiter applies to regular poll-driven persistence. Event-driven state changes such as discovery/reconciliation, startup/shutdown presence updates, and retained-history backfill remain independent because delaying those events could make operational state misleading.
+The one-second limiter applies to regular watcher poll-driven persistence. Event-driven state changes such as discovery/reconciliation, startup/shutdown presence updates, and retained-history backfill remain independent because delaying those events could make operational state misleading. The explicit `benchmark-polling` command also remains an evidence-collection workflow and can persist benchmark samples at the requested benchmark cadence; use `--no-persist` when those temporary benchmark rows are not wanted.
 
 ## Persistence failures versus Modbus failures
 
@@ -230,7 +231,7 @@ A passing interval means it satisfied the configured benchmark thresholds for th
 A sensible deployment workflow is:
 
 1. set `poll_interval_seconds = "auto"`, or run `benchmark-polling` and choose a numeric interval;
-2. keep `database.telemetry_write_interval_seconds >= 1.0` so high-rate polling does not create high-rate database churn;
+2. keep `database.telemetry_write_interval_seconds >= 1.0` so high-rate watcher polling does not create high-rate telemetry-history churn;
 3. monitor `/v1/controllers/{controller_uid}/polling/performance` over normal operation;
 4. inspect `mode=all` or `mode=benchmark` when comparing benchmark evidence to persisted watcher behavior;
 5. choose a slower numeric/benchmark stage if real-world latency, request failures, deadline misses, or RTU utilization drift upward.
