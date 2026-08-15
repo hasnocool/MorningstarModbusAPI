@@ -30,7 +30,9 @@ class FakeClient:
         raw[0x0035] = 25
         raw[0x003A] = 1000
         raw[0x003B] = 1100
-        raw[0x0044] = 249
+        # Morningstar reports Wh directly at 0x0044, with 10 Wh resolution.
+        # A raw value of 3970 therefore means 3970 Wh, not 39,700 Wh.
+        raw[0x0044] = 3970
         raw[0x0045] = 0b00101
         return raw
 
@@ -55,7 +57,7 @@ async def test_tristar_profile_decodes_named_metrics() -> None:
     assert by_name["input_power"].unit == "W"
     assert by_name["operating_hours"].value == 123
     assert by_name["charge_ah_resettable"].value == 2.5
-    assert by_name["daily_charge_wh"].value == 2490
+    assert by_name["daily_charge_wh"].value == 3970
     assert by_name["daily_charge_wh"].unit == "Wh"
     assert by_name["daily_flags"].value == "reset_detected,entered_float"
     assert by_name["rts_temp"].value == "DISCONNECTED"

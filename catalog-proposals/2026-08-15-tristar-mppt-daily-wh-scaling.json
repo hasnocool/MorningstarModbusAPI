@@ -1,0 +1,16 @@
+{
+  "source_id": "tristar-mppt-modbus-v11",
+  "source_sha256": "175cffda01cb215999fec2bdd6a7d96350246071033f57f0424795c86614efe4",
+  "affected_profiles": [
+    "tristar_mppt"
+  ],
+  "changes": [
+    {
+      "address": "0x0044",
+      "change": "correct whc_daily to direct Wh decoding; Morningstar documents the register in Wh with 10 Wh resolution, not a numeric x10 scaling factor"
+    }
+  ],
+  "tests": [
+    "tests/test_profiles.py::test_tristar_profile_decodes_named_metrics"
+  ]
+}

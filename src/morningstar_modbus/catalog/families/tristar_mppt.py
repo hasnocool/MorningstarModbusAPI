@@ -332,9 +332,8 @@ TRISTAR_MPPT = DeviceProfileSpec(
         RegisterSpec(
             "daily_charge_wh",
             0x0044,
-            decoder="ufactor:10",
             unit="Wh",
-            description="Charging energy today; the controller reports in 10 Wh steps.",
+            description="Charging energy today in Wh; the register value is direct Wh with 10 Wh resolution.",
         ),
         RegisterSpec(
             "daily_flags",
