@@ -6,8 +6,10 @@ import pytest
 from morningstar_modbus.api import create_app
 from morningstar_modbus.models import DeviceIdentification, DiscoveredDevice, Endpoint, ModbusExchange
 from morningstar_modbus.polling import (
+    AutoPollIntervalController,
     BenchmarkThresholds,
     PollPerformanceSample,
+    PollPersistenceLimiter,
     PollTrafficTracker,
     build_benchmark_report,
     evaluate_benchmark_stage,
@@ -148,6 +150,126 @@ def test_performance_summary_reports_rates_and_percentiles() -> None:
     assert summary["poll_latency_p50_ms"] == pytest.approx(104.5)
     assert summary["modbus_requests_per_second"] > 0
     assert summary["modbus_bytes_per_second"] > 0
+
+
+def test_poll_persistence_limiter_caps_subsecond_updates() -> None:
+    clock = [100.0]
+    limiter = PollPersistenceLimiter(1.0, clock=lambda: clock[0])
+
+    assert limiter.should_persist("ctrl_a")
+    clock[0] += 0.2
+    assert not limiter.should_persist("ctrl_a")
+    clock[0] += 0.79
+    assert not limiter.should_persist("ctrl_a")
+    clock[0] += 0.01
+    assert limiter.should_persist("ctrl_a")
+
+    # A different controller gets its own first persisted observation instead
+    # of being starved by another controller's cadence.
+    assert limiter.should_persist("ctrl_b")
+
+
+def test_auto_poll_interval_starts_conservative_then_locks_to_last_safe_stage() -> None:
+    now = datetime(2026, 8, 15, tzinfo=UTC)
+    auto = AutoPollIntervalController(
+        [1.0, 0.5, 0.25],
+        samples_per_interval=3,
+        thresholds=BenchmarkThresholds(),
+        fallback_interval_seconds=5.0,
+    )
+
+    assert auto.current_interval_seconds == 5.0
+    for index in range(3):
+        message = auto.observe(
+            {"ctrl_a": _sample(now + timedelta(seconds=index * 5), interval=5.0, latency_ms=100.0)},
+            {"ctrl_a"},
+        )
+    assert message == "auto polling stage 5s passed; testing 1s"
+    assert auto.current_interval_seconds == 1.0
+
+    for index in range(3):
+        message = auto.observe(
+            {
+                "ctrl_a": _sample(
+                    now + timedelta(seconds=20 + index), interval=1.0, latency_ms=100.0
+                )
+            },
+            {"ctrl_a"},
+        )
+    assert message == "auto polling stage 1s passed; testing 0.5s"
+    assert auto.current_interval_seconds == 0.5
+    assert auto.calibrating
+
+    # 450 ms exceeds the default 80% p95 headroom limit for a 500 ms stage.
+    for index in range(3):
+        message = auto.observe(
+            {
+                "ctrl_a": _sample(
+                    now + timedelta(seconds=30 + index),
+                    interval=0.5,
+                    latency_ms=450.0,
+                )
+            },
+            {"ctrl_a"},
+        )
+    assert message is not None
+    assert "using 1s" in message
+    assert auto.current_interval_seconds == 1.0
+    assert not auto.calibrating
+
+
+def test_auto_poll_interval_requires_every_present_controller_to_pass() -> None:
+    now = datetime(2026, 8, 15, tzinfo=UTC)
+    auto = AutoPollIntervalController(
+        [1.0, 0.5],
+        samples_per_interval=3,
+        thresholds=BenchmarkThresholds(),
+        fallback_interval_seconds=5.0,
+    )
+
+    # One controller has a complete baseline window, but auto mode must not
+    # advance until the other currently-present controller does too.
+    for index in range(3):
+        message = auto.observe(
+            {"ctrl_a": _sample(now + timedelta(seconds=index * 5), interval=5.0, latency_ms=100.0)},
+            {"ctrl_a", "ctrl_b"},
+        )
+    assert message is None
+    assert auto.current_interval_seconds == 5.0
+
+    for index in range(3):
+        message = auto.observe(
+            {
+                "ctrl_a": _sample(
+                    now + timedelta(seconds=20 + index * 5), interval=5.0, latency_ms=100.0
+                ),
+                "ctrl_b": _sample(
+                    now + timedelta(seconds=20 + index * 5), interval=5.0, latency_ms=900.0
+                ),
+            },
+            {"ctrl_a", "ctrl_b"},
+        )
+    assert message == "auto polling stage 5s passed; testing 1s"
+    assert auto.current_interval_seconds == 1.0
+
+    # Controller B cannot safely meet the 1-second headroom target, so the
+    # global watcher cadence must return to the proven 5-second baseline.
+    for index in range(3):
+        message = auto.observe(
+            {
+                "ctrl_a": _sample(
+                    now + timedelta(seconds=40 + index), interval=1.0, latency_ms=100.0
+                ),
+                "ctrl_b": _sample(
+                    now + timedelta(seconds=40 + index), interval=1.0, latency_ms=900.0
+                ),
+            },
+            {"ctrl_a", "ctrl_b"},
+        )
+    assert message is not None
+    assert "using 5s" in message
+    assert auto.current_interval_seconds == 5.0
+    assert not auto.calibrating
 
 
 @pytest.mark.asyncio
