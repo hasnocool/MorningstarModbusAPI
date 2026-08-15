@@ -30,15 +30,6 @@ def _is_fresh(value: object, *, now: datetime, grace_seconds: float) -> bool:
     return max(0.0, (now - parsed).total_seconds()) <= grace_seconds
 
 
-def _signature(row: dict[str, Any]) -> tuple[str, str, str, int]:
-    return (
-        str(row.get("vendor_name") or "").strip().lower(),
-        str(row.get("product_code") or "").strip().lower(),
-        str(row.get("profile") or "").strip().lower(),
-        int(row.get("unit_id") or 0),
-    )
-
-
 def _connection_payload(row: dict[str, Any]) -> dict[str, object]:
     return {
         "device_id": row["id"],
@@ -78,13 +69,15 @@ class ControllerInventoryRepository:
 
     async def mark_all_offline(self) -> None:
         async with aiosqlite.connect(self.path) as db:
-            await db.execute("UPDATE devices SET status='offline' WHERE status='online'")
+            await db.execute(
+                "UPDATE devices SET status='offline' WHERE status IN ('online', 'error')"
+            )
             await db.commit()
 
     async def mark_device_offline(self, device_id: str) -> None:
         async with aiosqlite.connect(self.path) as db:
             await db.execute(
-                "UPDATE devices SET status='offline' WHERE id=? AND status!='error'",
+                "UPDATE devices SET status='offline' WHERE id=?",
                 (device_id,),
             )
             await db.commit()
@@ -95,31 +88,16 @@ class ControllerInventoryRepository:
             return []
 
         groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        signature_to_serial_keys: dict[tuple[str, str, str, int], set[str]] = defaultdict(set)
-
-        for row in rows:
-            serial = str(row.get("serial_number") or "").strip()
-            if not serial:
-                continue
-            key = f"morningstar:{str(row.get('profile') or '').lower()}:{serial.lower()}"
-            groups[key].append(row)
-            signature_to_serial_keys[_signature(row)].add(key)
-
         for row in rows:
             serial = str(row.get("serial_number") or "").strip()
             if serial:
-                continue
-
-            serial_candidates = signature_to_serial_keys.get(_signature(row), set())
-            if len(serial_candidates) == 1:
-                groups[next(iter(serial_candidates))].append(row)
-                continue
-
-            usb_serial = str(row.get("usb_serial") or "").strip()
-            if usb_serial:
-                key = f"usb:{usb_serial.lower()}:unit:{int(row.get('unit_id') or 0)}"
+                key = f"morningstar:{str(row.get('profile') or '').lower()}:{serial.lower()}"
             else:
-                key = f"endpoint:{row['stable_key']}"
+                usb_serial = str(row.get("usb_serial") or "").strip()
+                if usb_serial:
+                    key = f"usb:{usb_serial.lower()}:unit:{int(row.get('unit_id') or 0)}"
+                else:
+                    key = f"endpoint:{row['stable_key']}"
             groups[key].append(row)
 
         now = datetime.now(UTC)
@@ -188,7 +166,7 @@ class ControllerInventoryRepository:
             "first_seen": min(first_seen_values) if first_seen_values else None,
             "last_seen": current.get("last_seen"),
             "connection_count": len(ordered),
-            "active_connection_count": 1 if status == "online" else 0,
+            "active_connection_count": 1 if status in {"online", "error"} else 0,
             "current_connection": connections[0],
             "connections": connections,
         }
