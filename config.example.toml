@@ -9,8 +9,9 @@ telemetry_write_interval_seconds = 1.0
 
 [watch]
 # Either a positive number of seconds or "auto".
-# "auto" safely tests [poll_benchmark] stages using live full-profile reads and
-# selects the fastest stage that every currently-present controller passes.
+# "auto" starts at the conservative fallback below, then safely tests the
+# [poll_benchmark] stages using live full-profile reads. It selects the fastest
+# stage that every currently-present controller passes.
 # A numeric value is used exactly as configured, including sub-second polling.
 poll_interval_seconds = "auto"
 discovery_interval_seconds = 30.0
@@ -24,8 +25,8 @@ retry_backoff_initial_seconds = 2.0
 retry_backoff_max_seconds = 60.0
 
 [poll_benchmark]
-# Used by both `benchmark-polling` and watch/run when poll_interval_seconds="auto".
-# Tested from slowest to fastest and stopped after the first unsafe stage.
+# `benchmark-polling` tests these directly. Auto mode first establishes the
+# fallback baseline below, then tests these from slowest to fastest.
 intervals_seconds = [1.0, 0.5, 0.25]
 samples_per_interval = 12
 min_success_rate = 0.98
@@ -37,7 +38,8 @@ max_request_failure_rate = 0.02
 max_bus_utilization_percent = 70.0
 # Prevent accidentally benchmarking extremely aggressive rates.
 minimum_interval_seconds = 0.25
-# If the first auto stage is already unsafe, use this conservative interval.
+# Auto mode starts here and returns to the last proven-safe stage if a faster
+# stage fails. This value must be at least as slow as the slowest test stage.
 auto_fallback_interval_seconds = 5.0
 
 [serial]
