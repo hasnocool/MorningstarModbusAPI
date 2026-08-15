@@ -8,6 +8,7 @@ import json
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -159,8 +160,8 @@ def create_app(store: TelemetryStore) -> FastAPI:
 
     @app.get("/v1/devices/registers/history")
     async def registers_history(
+        name: Annotated[list[str], Query()],
         device_id: str = Query(...),
-        name: list[str] = Query(...),
         from_: str | None = Query(None, alias="from"),
         to: str | None = Query(None),
         resolution: str = Query("raw"),
@@ -192,8 +193,8 @@ def create_app(store: TelemetryStore) -> FastAPI:
 
     @app.get("/v1/devices/registers/stats")
     async def register_stats(
+        name: Annotated[list[str], Query()],
         device_id: str = Query(...),
-        name: list[str] = Query(...),
         from_: str | None = Query(None, alias="from"),
         to: str | None = Query(None),
     ) -> dict[str, object]:
@@ -221,7 +222,7 @@ def create_app(store: TelemetryStore) -> FastAPI:
     @app.get("/v1/devices/history/export")
     async def history_export(
         device_id: str = Query(...),
-        name: list[str] | None = Query(None),
+        name: Annotated[list[str] | None, Query()] = None,
         from_: str | None = Query(None, alias="from"),
         to: str | None = Query(None),
         resolution: str = Query("raw"),

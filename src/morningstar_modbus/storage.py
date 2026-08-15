@@ -96,6 +96,11 @@ def _order_sql(order: str) -> str:
     return "ASC" if order.lower() == "asc" else "DESC"
 
 
+def _database_size(path: str) -> int:
+    db_path = Path(path).expanduser()
+    return db_path.stat().st_size if db_path.exists() else 0
+
+
 class TelemetryStore:
     def __init__(self, path: str) -> None:
         self.path = path
@@ -704,8 +709,7 @@ class TelemetryStore:
             f"SELECT COUNT(*) AS error_count FROM poll_errors WHERE {' AND '.join(error_clauses)}",
             tuple(error_params),
         )
-        db_path = Path(self.path).expanduser()
-        database_bytes = await asyncio.to_thread(lambda: db_path.stat().st_size if db_path.exists() else 0)
+        database_bytes = await asyncio.to_thread(_database_size, self.path)
         return {
             "device_id": device_id,
             "from": start,
