@@ -14,7 +14,13 @@ from morningstar_modbus.discovery import discover
 from morningstar_modbus.intelligence import DeviceIntelligence, refresh_intelligence
 from morningstar_modbus.lifecycle import DeviceLifecycle
 from morningstar_modbus.models import DiscoveredDevice, PollResult
-from morningstar_modbus.polling import PollTrafficTracker
+from morningstar_modbus.polling import (
+    AutoPollIntervalController,
+    BenchmarkThresholds,
+    PollPerformanceSample,
+    PollPersistenceLimiter,
+    PollTrafficTracker,
+)
 from morningstar_modbus.polling_storage import PollingPerformanceStore
 from morningstar_modbus.storage import TelemetryStore
 from morningstar_modbus.transport import AsyncModbusRtuClient, AsyncModbusTcpClient, ReadOnlyModbusClient
@@ -28,6 +34,28 @@ class Watcher:
         self.store = store
         self.performance_store = PollingPerformanceStore(store.path)
         self.controller_inventory = ControllerRegistry(store.path)
+        benchmark = config.poll_benchmark
+        thresholds = BenchmarkThresholds(
+            min_success_rate=benchmark.min_success_rate,
+            max_p95_interval_ratio=benchmark.max_p95_interval_ratio,
+            max_deadline_miss_rate=benchmark.max_deadline_miss_rate,
+            max_request_failure_rate=benchmark.max_request_failure_rate,
+            max_bus_utilization_percent=benchmark.max_bus_utilization_percent,
+        )
+        self._auto_poll = (
+            AutoPollIntervalController(
+                benchmark.intervals_seconds,
+                samples_per_interval=benchmark.samples_per_interval,
+                thresholds=thresholds,
+                fallback_interval_seconds=benchmark.auto_fallback_interval_seconds,
+            )
+            if config.watch.poll_interval_seconds == "auto"
+            else None
+        )
+        self._persistence_limiter = PollPersistenceLimiter(
+            config.database.telemetry_write_interval_seconds
+        )
+        self._auto_signature: tuple[tuple[str, str, str, str], ...] | None = None
         self._devices: dict[str, DiscoveredDevice] = {}
         self._device_ids: dict[str, str] = {}
         self._controller_ids: dict[str, str] = {}
@@ -44,6 +72,14 @@ class Watcher:
         self._history_tasks: dict[str, asyncio.Task[None]] = {}
         self._history_attempted_controllers: set[str] = set()
         self._stopping = asyncio.Event()
+
+    def _poll_interval_seconds(self) -> float:
+        if self._auto_poll is not None:
+            return self._auto_poll.current_interval_seconds
+        interval = self.config.watch.poll_interval_seconds
+        if interval == "auto":
+            raise RuntimeError("auto poll interval controller was not initialized")
+        return float(interval)
 
     async def stop(self) -> None:
         self._stopping.set()
@@ -80,10 +116,16 @@ class Watcher:
                 if now >= next_discovery:
                     await self._refresh_devices()
                     next_discovery = now + self.config.watch.discovery_interval_seconds
+                poll_interval = self._poll_interval_seconds()
                 cycle_started = time.monotonic()
-                await self._poll_all()
+                performance = await self._poll_all(poll_interval)
+                if self._auto_poll is not None:
+                    message = self._auto_poll.observe(performance, self._present_controller_ids)
+                    if message is not None:
+                        LOGGER.info(message)
                 cycle_elapsed = time.monotonic() - cycle_started
-                sleep_seconds = max(0.0, self.config.watch.poll_interval_seconds - cycle_elapsed)
+                next_interval = self._poll_interval_seconds()
+                sleep_seconds = max(0.0, next_interval - cycle_elapsed)
                 try:
                     await asyncio.wait_for(self._stopping.wait(), timeout=sleep_seconds)
                 except TimeoutError:
@@ -103,6 +145,23 @@ class Watcher:
         await self.controller_inventory.reconcile_presence(
             {(controller_id, key) for controller_id, (_device_id, key, _device) in selected.items()}
         )
+        signature = tuple(
+            sorted(
+                (
+                    controller_id,
+                    key,
+                    device.profile,
+                    device.endpoint.transport,
+                )
+                for controller_id, (_device_id, key, device) in selected.items()
+            )
+        )
+        if self._auto_poll is not None and self._auto_signature is not None:
+            if signature != self._auto_signature:
+                self._auto_poll.reset()
+                LOGGER.info("auto polling calibration reset after controller/endpoint set changed")
+        self._auto_signature = signature
+
         found_controller_ids = set(selected)
         missing_controller_ids = self._present_controller_ids - found_controller_ids
         for controller_id in missing_controller_ids:
@@ -217,15 +276,24 @@ class Watcher:
             rank = 2
         return rank, key
 
-    async def _poll_all(self) -> None:
+    async def _poll_all(self, poll_interval_seconds: float) -> dict[str, PollPerformanceSample]:
         if not self._present_keys:
-            return
+            return {}
+        tasks: list[tuple[str, asyncio.Task[PollPerformanceSample | None]]] = []
         async with asyncio.TaskGroup() as group:
             for key in tuple(self._present_keys):
                 device = self._devices.get(key)
                 lifecycle = self._lifecycles.setdefault(key, DeviceLifecycle())
-                if device is not None and lifecycle.can_poll():
-                    group.create_task(self._poll_one(key, device))
+                controller_id = self._controller_ids.get(key)
+                if device is not None and controller_id is not None and lifecycle.can_poll():
+                    task = group.create_task(self._poll_one(key, device, poll_interval_seconds))
+                    tasks.append((controller_id, task))
+        results: dict[str, PollPerformanceSample] = {}
+        for controller_id, task in tasks:
+            sample = task.result()
+            if sample is not None:
+                results[controller_id] = sample
+        return results
 
     def _tracker(self, key: str, device: DiscoveredDevice) -> PollTrafficTracker:
         tracker = self._traffic.get(key)
@@ -333,11 +401,67 @@ class Watcher:
             if current is asyncio.current_task():
                 self._history_tasks.pop(controller_id, None)
 
-    async def _poll_one(self, key: str, device: DiscoveredDevice) -> None:
+    async def _persist_success(
+        self,
+        *,
+        controller_id: str,
+        device_id: str,
+        device: DiscoveredDevice,
+        result: PollResult,
+        performance: PollPerformanceSample,
+        intelligence: DeviceIntelligence | None,
+    ) -> None:
+        sample_id: int | None = None
+        try:
+            sample_id = await self.store.save_poll(device_id, result)
+        except Exception:
+            LOGGER.exception("failed to persist poll telemetry device=%s", device_id)
+            return
+        try:
+            await self.controller_inventory.record_success(controller_id, device.endpoint.stable_key)
+        except Exception:
+            LOGGER.exception("failed to persist connection success controller=%s", controller_id)
+        try:
+            await self.performance_store.save(
+                device_id,
+                performance,
+                sample_id=sample_id,
+                mode="watch",
+            )
+        except Exception:
+            LOGGER.exception("failed to persist poll-performance telemetry device=%s", device_id)
+        if intelligence is not None:
+            try:
+                await self.store.save_device_intelligence(device_id, intelligence)
+            except Exception:
+                LOGGER.exception("failed to persist device intelligence device=%s", device_id)
+
+    async def _persist_failure(
+        self,
+        *,
+        device_id: str,
+        performance: PollPerformanceSample,
+        error: str,
+    ) -> None:
+        try:
+            await self.performance_store.save(device_id, performance, mode="watch")
+        except Exception:
+            LOGGER.exception("failed to persist poll-performance telemetry device=%s", device_id)
+        try:
+            await self.store.save_error(device_id, error)
+        except Exception:
+            LOGGER.exception("failed to persist poll error device=%s", device_id)
+
+    async def _poll_one(
+        self,
+        key: str,
+        device: DiscoveredDevice,
+        poll_interval_seconds: float,
+    ) -> PollPerformanceSample | None:
         device_id = self._device_ids.get(key)
         controller_id = self._controller_ids.get(key)
         if device_id is None or controller_id is None:
-            return
+            return None
         lifecycle = self._lifecycles.setdefault(key, DeviceLifecycle())
         reconnected = bool(lifecycle.offline_since or lifecycle.consecutive_failures)
         lifecycle.mark_connecting()
@@ -354,28 +478,11 @@ class Watcher:
             )
             latency_ms = (time.perf_counter() - started) * 1000.0
             lifecycle.mark_success()
-            sample_id = await self.store.save_poll(
-                device_id,
-                PollResult(device.endpoint, device.identification, profile.name, latency_ms, values),
-            )
-            try:
-                await self.controller_inventory.record_success(controller_id, device.endpoint.stable_key)
-            except Exception:
-                LOGGER.exception("failed to persist connection success controller=%s", controller_id)
             performance = tracker.finish(
-                configured_interval_seconds=self.config.watch.poll_interval_seconds,
+                configured_interval_seconds=poll_interval_seconds,
                 poll_latency_ms=latency_ms,
                 success=True,
             )
-            try:
-                await self.performance_store.save(
-                    device_id,
-                    performance,
-                    sample_id=sample_id,
-                    mode="watch",
-                )
-            except Exception:
-                LOGGER.exception("failed to persist poll-performance telemetry device=%s", device_id)
             if intelligence is not None:
                 intelligence = refresh_intelligence(
                     intelligence,
@@ -383,25 +490,37 @@ class Watcher:
                     endpoint=device.endpoint,
                 )
                 self._intelligence[key] = intelligence
-                await self.store.save_device_intelligence(device_id, intelligence)
+            if self._persistence_limiter.should_persist(controller_id):
+                await self._persist_success(
+                    controller_id=controller_id,
+                    device_id=device_id,
+                    device=device,
+                    result=PollResult(
+                        device.endpoint,
+                        device.identification,
+                        profile.name,
+                        latency_ms,
+                        values,
+                    ),
+                    performance=performance,
+                    intelligence=intelligence,
+                )
             self._schedule_history_backfill(
                 controller_id,
                 device_id,
                 device,
                 reconnected=reconnected,
             )
+            return performance
         except Exception as exc:
             latency_ms = (time.perf_counter() - started) * 1000.0
+            error = f"{type(exc).__name__}: {exc}"
             performance = tracker.finish(
-                configured_interval_seconds=self.config.watch.poll_interval_seconds,
+                configured_interval_seconds=poll_interval_seconds,
                 poll_latency_ms=latency_ms,
                 success=False,
-                error=f"{type(exc).__name__}: {exc}",
+                error=error,
             )
-            try:
-                await self.performance_store.save(device_id, performance, mode="watch")
-            except Exception:
-                LOGGER.exception("failed to persist poll-performance telemetry device=%s", device_id)
             lifecycle.mark_failure(
                 threshold=self.config.watch.failure_threshold,
                 initial_backoff=self.config.watch.retry_backoff_initial_seconds,
@@ -416,4 +535,10 @@ class Watcher:
                 exc,
                 lifecycle.to_dict(),
             )
-            await self.store.save_error(device_id, f"{type(exc).__name__}: {exc}")
+            if self._persistence_limiter.should_persist(controller_id):
+                await self._persist_failure(
+                    device_id=device_id,
+                    performance=performance,
+                    error=error,
+                )
+            return performance
