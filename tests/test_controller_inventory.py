@@ -1,8 +1,10 @@
 from datetime import UTC, datetime, timedelta
 
 import aiosqlite
+import httpx
 import pytest
 
+from morningstar_modbus.api import create_app
 from morningstar_modbus.controller_inventory import ControllerInventoryRepository
 from morningstar_modbus.storage import TelemetryStore
 
@@ -52,7 +54,8 @@ async def _insert_endpoint(
 @pytest.mark.asyncio
 async def test_groups_reconnected_endpoints_by_controller_serial(tmp_path) -> None:
     path = str(tmp_path / "telemetry.db")
-    await TelemetryStore(path).initialize()
+    store = TelemetryStore(path)
+    await store.initialize()
     now = datetime.now(UTC)
     await _insert_endpoint(
         path,
@@ -92,6 +95,14 @@ async def test_groups_reconnected_endpoints_by_controller_serial(tmp_path) -> No
         "offline",
         "offline",
     ]
+
+    app = create_app(store)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/v1/controllers")
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]["connection_count"] == 3
 
 
 @pytest.mark.asyncio
