@@ -62,7 +62,12 @@ SYSTEM_METRICS: tuple[SystemMetricSpec, ...] = (
         "V",
         "median",
         "battery",
-        ("battery_sense_voltage", "battery_terminal_voltage", "battery_voltage", "battery_voltage_1m"),
+        (
+            "battery_sense_voltage",
+            "battery_terminal_voltage",
+            "battery_voltage",
+            "battery_voltage_1m",
+        ),
         "Representative battery-system voltage using the median of available bus observations.",
     ),
     SystemMetricSpec(
@@ -95,23 +100,41 @@ SYSTEM_METRICS: tuple[SystemMetricSpec, ...] = (
         "sum",
         "energy",
         ("daily_charge_wh", "charge_wh_daily", "daily_energy_wh"),
-        "Total charging energy accumulated during the current controller day.",
+        "Total charging energy accumulated during the current controller day in Wh.",
+    ),
+    SystemMetricSpec(
+        "daily_charge_kwh",
+        "kWh",
+        "sum",
+        "energy",
+        ("daily_charge_kwh", "internal_charge_kwh_daily"),
+        "Total controller-local charging energy accumulated during the current day in kWh.",
     ),
     SystemMetricSpec(
         "daily_charge_ah",
         "Ah",
         "sum",
         "energy",
-        ("daily_charge_ah", "charge_ah_daily", "daily_amp_hours"),
-        "Total charging amp-hours accumulated during the current controller day.",
+        (
+            "daily_charge_ah",
+            "charge_ah_daily",
+            "daily_amp_hours",
+            "internal_charge_ah_daily",
+        ),
+        "Total controller-local charging amp-hours accumulated during the current day.",
     ),
     SystemMetricSpec(
         "lifetime_charge_kwh",
         "kWh",
         "sum",
         "energy",
-        ("charge_kwh_total", "lifetime_energy_kwh", "energy_total_kwh"),
-        "Combined lifetime charging energy reported by participating charge controllers.",
+        (
+            "charge_kwh_total",
+            "lifetime_energy_kwh",
+            "energy_total_kwh",
+            "internal_charge_kwh_total",
+        ),
+        "Combined lifetime controller-local charging energy.",
     ),
     SystemMetricSpec(
         "charge_state",
@@ -141,7 +164,9 @@ SYSTEM_METRICS: tuple[SystemMetricSpec, ...] = (
 
 SYSTEM_METRIC_BY_NAME = {metric.name: metric for metric in SYSTEM_METRICS}
 SYSTEM_METRIC_BY_REGISTER = {
-    register_name: metric for metric in SYSTEM_METRICS for register_name in metric.registers
+    register_name: metric
+    for metric in SYSTEM_METRICS
+    for register_name in metric.registers
 }
 
 
