@@ -6,7 +6,7 @@ It discovers Morningstar hardware, identifies it conservatively, reads and decod
 
 The project does **not** expose Modbus write operations. Vendor specifications may document writable registers and coils, but the runtime remains a read-only boundary.
 
-> **Release status:** the latest published release is **v0.4.0**. It includes lifecycle/reconnect improvements, richer history queries/exports, controller-retained daily-history backfill, polling benchmarking and automatic interval selection, a one-second minimum watcher persistence cadence, physical-controller identity, immutable controller UIDs, controller-scoped history, and explicit manufacturer-reserved register metadata. Current documentation tracks that released runtime behavior unless a section explicitly says otherwise.
+> **Release status:** the latest published release is **v0.5.0**. It adds the normalized multi-controller system/site API, quality-aware aggregate metrics and history, topology/event/SSE surfaces, retained-history provider extensibility, optional inbound SNMP trap events, expanded GenStar logger coverage, and the domain-oriented package reorganization. Historical flat Python import paths remain supported through compatibility aliases, and the runtime remains read-only.
 
 ## Current capabilities
 
@@ -30,6 +30,8 @@ The project does **not** expose Modbus write operations. Vendor specifications m
 - Exact read-only Modbus capture for TCP and RTU, preserving request/response frames, PDUs, request shape, timing, and failures.
 - Strict capture replay through the same production protocol parsers used for live devices.
 - Hardware/replay verification reports plus a separate catalog verification-evidence registry.
+- Normalized multi-controller system/site aggregation with quality-aware metrics/history, topology, unified events, and SSE streaming.
+- Optional inbound SNMP trap event ingestion and a retained-history provider registry for verified non-poll history backends.
 - FastAPI JSON endpoints plus automatic OpenAPI documentation.
 - Automated catalog-maintenance tooling for official-source validation, conservative PDF extraction, advisory diffs, and reviewed provenance.
 
@@ -63,29 +65,9 @@ Consumers should prefer the semantic register map and treat raw aliases as evide
 
 ## Package layout
 
-```text
-src/morningstar_modbus/
-├── catalog/                         # vendor-derived profiles + independent verification evidence
-├── intelligence/                    # identity, firmware compatibility, confidence, validation
-├── maintenance/                     # official-source validation and advisory PDF/spec scanning
-├── api.py                            # legacy/device API + app construction
-├── controller_api.py                 # controller-first FastAPI routes
-├── controller_scope.py               # immutable controller UID registry + alias resolution
-├── controller_inventory.py           # evidence-derived identity + connection inventory
-├── controller_data.py                # controller-scoped history/query/aggregation layer
-├── controller_history_*.py           # retained daily-history retrieval/storage/backfill
-├── polling.py / polling_storage.py   # auto tuning, performance metrics, persistence cadence, benchmark data
-├── capture.py                        # read-only capture bundle writer
-├── replay.py                         # strict capture replay client
-├── verification.py                   # live/replay verification report generation
-├── lifecycle.py                      # in-memory lifecycle and retry/backoff state
-├── discovery.py                      # transport discovery + intelligence resolution
-├── storage.py                        # raw SQLite/WAL telemetry persistence
-├── watcher.py                        # discovery, identity reconciliation, polling, reconnect, backfill
-└── ...
-```
+The runtime is organized into domain packages such as `api/`, `capture/`, `controllers/`, `discovery/`, `history/`, `persistence/`, `polling/`, `protocol/`, `runtime/`, `systems/`, and `transports/`. Legacy flat import paths remain available through compatibility exports/aliases so the v0.5.0 reorganization does not intentionally break callers.
 
-See [`docs/README.md`](docs/README.md) for the documentation index.
+See [`docs/package-layout.md`](docs/package-layout.md) for the canonical tree and dependency direction, and [`docs/README.md`](docs/README.md) for the documentation index.
 
 ## Installation
 
