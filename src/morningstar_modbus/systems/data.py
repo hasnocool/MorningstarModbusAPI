@@ -549,6 +549,128 @@ class SystemDataRepository:
             "points": points,
         }
 
+    async def bucketed_metric_history(
+        self,
+        identifier: str,
+        metric_name: str,
+        *,
+        start: str | None,
+        end: str | None,
+        resolution: str,
+        max_buckets: int = 20_000,
+    ) -> dict[str, object]:
+        """Return fixed-resolution system history with SQL-side aggregation.
+
+        Unlike :meth:`history`, raw source observations are averaged per
+        (bucket, controller, alias) inside SQLite before Python applies the
+        metric's alias-priority and cross-controller aggregation semantics.
+        The result is bounded by buckets rather than by raw observation
+        volume, so high-granularity capture never trips the source-observation
+        guard. Only numeric (non-state) metrics are supported.
+        """
+        spec = metric_spec(metric_name)
+        if spec is None:
+            raise ValueError(f"unknown system metric: {metric_name}")
+        if spec.aggregation == "state_set":
+            raise ValueError("state-set metrics require per-observation history")
+        normalized_resolution = resolution.strip().lower()
+        if normalized_resolution not in _RESOLUTION_SECONDS:
+            raise ValueError("resolution must be 1m, 5m, 15m, 1h, or 1d")
+        seconds = _RESOLUTION_SECONDS[normalized_resolution]
+        system_uid, device_to_controller, controllers = await self._scope_map(identifier)
+        if not device_to_controller:
+            return {
+                "system_uid": system_uid,
+                "metric": spec.to_dict(),
+                "resolution": normalized_resolution,
+                "points": [],
+            }
+        aliases = spec.registers
+        device_ids = tuple(device_to_controller)
+        device_placeholders = ",".join("?" for _ in device_ids)
+        alias_placeholders = ",".join("?" for _ in aliases)
+        clauses = [
+            f"s.device_id IN ({device_placeholders})",
+            f"v.register_name IN ({alias_placeholders})",
+            "v.numeric_value IS NOT NULL",
+        ]
+        params: list[object] = [*device_ids, *aliases]
+        if start is not None:
+            clauses.append("s.observed_at>=?")
+            params.append(start)
+        if end is not None:
+            clauses.append("s.observed_at<?")
+            params.append(end)
+        async with aiosqlite.connect(self.path) as db:
+            db.row_factory = aiosqlite.Row
+            rows = await (
+                await db.execute(
+                    f"""
+                    SELECT (CAST(strftime('%s', s.observed_at) AS INTEGER) / {seconds})
+                           * {seconds} AS bucket_epoch,
+                           s.device_id, v.register_name,
+                           AVG(v.numeric_value) AS avg_value,
+                           MIN(v.unit) AS unit
+                    FROM register_values v
+                    JOIN poll_samples s ON s.id=v.sample_id
+                    WHERE {' AND '.join(clauses)}
+                    GROUP BY bucket_epoch, s.device_id, v.register_name
+                    ORDER BY bucket_epoch ASC
+                    LIMIT ?
+                    """,
+                    (*params, max_buckets + 1),
+                )
+            ).fetchall()
+        if len(rows) > max_buckets:
+            raise ValueError(
+                f"query exceeds {max_buckets} aggregated buckets; "
+                "narrow the range or use a coarser resolution"
+            )
+        priority = {name: index for index, name in enumerate(aliases)}
+        buckets: dict[int, dict[str, dict[str, object]]] = defaultdict(dict)
+        for row in rows:
+            controller_uid = device_to_controller.get(str(row["device_id"]))
+            if controller_uid is None:
+                continue
+            item = {
+                "controller_uid": controller_uid,
+                "source_device_id": str(row["device_id"]),
+                "observed_at": datetime.fromtimestamp(int(row["bucket_epoch"]), UTC).isoformat(),
+                "register_name": str(row["register_name"]),
+                "value": float(row["avg_value"]),
+                "unit": row["unit"] or spec.unit,
+            }
+            key = (controller_uid, str(row["register_name"]))
+            current = buckets[int(row["bucket_epoch"])].get(key)
+            if current is None:
+                buckets[int(row["bucket_epoch"])][key] = item
+        chosen: dict[int, list[dict[str, object]]] = {}
+        for bucket_epoch, by_key in buckets.items():
+            per_controller: dict[str, dict[str, object]] = {}
+            for (controller_uid, register_name), item in by_key.items():
+                previous = per_controller.get(controller_uid)
+                if previous is None or priority[register_name] < priority[
+                    str(previous["register_name"])
+                ]:
+                    per_controller[controller_uid] = item
+            chosen[bucket_epoch] = list(per_controller.values())
+        expected = self._eligible_controller_uids(controllers, spec)
+        points: list[dict[str, object]] = []
+        for bucket_epoch in sorted(chosen):
+            aggregate = self._aggregate_observations(spec, chosen[bucket_epoch], expected)
+            aggregate["bucket_start"] = datetime.fromtimestamp(
+                bucket_epoch, UTC
+            ).isoformat()
+            points.append(aggregate)
+        return {
+            "system_uid": system_uid,
+            "metric": spec.to_dict(),
+            "from": start,
+            "to": end,
+            "resolution": normalized_resolution,
+            "points": points,
+        }
+
     async def topology(self, identifier: str) -> dict[str, object]:
         system_uid = await self._resolve_uid(identifier)
         async with aiosqlite.connect(self.path) as db:

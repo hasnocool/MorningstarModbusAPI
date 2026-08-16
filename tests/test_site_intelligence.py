@@ -1,8 +1,10 @@
 # tests/test_site_intelligence.py
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import aiosqlite
 import httpx
 import pytest
 
@@ -178,6 +180,83 @@ async def test_site_intelligence_detects_and_resolves_electrical_anomalies(
     event_types = {str(item["event_type"]) for item in events}
     assert "INCIDENT_OPENED" in event_types
     assert "INCIDENT_RESOLVED" in event_types
+
+
+@pytest.mark.asyncio
+async def test_solar_baseline_aggregates_high_granularity_history_beyond_source_guard(
+    tmp_path: Path,
+) -> None:
+    store = TelemetryStore(str(tmp_path / "telemetry.sqlite3"))
+    await store.initialize()
+    registry = ControllerRegistry(store.path)
+    device = _device()
+    _, device_id = await registry.register_observation(device)
+
+    # Seed four prior days of dense 15-minute capture so raw source volume
+    # exceeds the 20k observation guard while bucketed aggregation stays
+    # bounded. The flat 100 W curve makes the baseline deterministic.
+    now = datetime.now(UTC)
+    end = now.replace(hour=23, minute=59, second=0, microsecond=0) - timedelta(days=1)
+    samples: list[tuple[str, str, float, str]] = []
+    values: list[tuple[int, str, int, str, str, float, None, str]] = []
+    for day in range(4, 0, -1):
+        for bucket in range(96):
+            bucket_start = (end - timedelta(days=day)) + timedelta(minutes=15 * bucket)
+            for _ in range(90):
+                samples.append((device_id, bucket_start.isoformat(), 5.0, "tristar_mppt"))
+    async with aiosqlite.connect(store.path) as db:
+        await db.executemany(
+            "INSERT INTO poll_samples(device_id, observed_at, latency_ms, profile) "
+            "VALUES (?, ?, ?, ?)",
+            samples,
+        )
+        rows = await db.execute(
+            "SELECT id FROM poll_samples WHERE device_id=?", (device_id,)
+        )
+        sample_ids = [int(row[0]) for row in await rows.fetchall()]
+        for sample_id in sample_ids:
+            values.append(
+                (
+                    sample_id,
+                    "input_power_reported",
+                    0x003B,
+                    "holding",
+                    "[100]",
+                    100.0,
+                    None,
+                    "W",
+                )
+            )
+        await db.executemany(
+            "INSERT INTO register_values(sample_id, register_name, address, function, "
+            "raw_json, numeric_value, text_value, unit) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            values,
+        )
+        await db.commit()
+
+    systems = SystemDataRepository(store.path)
+    await systems.initialize()
+    with pytest.raises(ValueError):
+        # The guarded per-observation path must still refuse this window.
+        await systems.history(
+            "sys_default",
+            "solar_input_power_w",
+            start=(now - timedelta(days=4)).isoformat(),
+            end=now.isoformat(),
+            resolution="15m",
+        )
+
+    # A current observation is required for a ready baseline.
+    await store.save_poll(
+        device_id,
+        _poll(device, terminal_v=14.2, sense_v=14.2, input_w=100.0, output_w=95.0),
+    )
+    service = SiteIntelligenceService(store.path, systems)
+    baseline = await service.solar_baseline("sys_default")
+    assert baseline["status"] == "ready"
+    assert int(baseline["comparable_days"]) >= 3
+    assert baseline["expected_median"] == pytest.approx(100.0)
+    assert baseline["history_days"] == 8
 
 
 @pytest.mark.asyncio
