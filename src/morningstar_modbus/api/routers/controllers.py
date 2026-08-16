@@ -12,7 +12,6 @@ from typing import Annotated, Any
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from morningstar_modbus.controller_data import ControllerDataRepository, ControllerNotFoundError
 from morningstar_modbus.history import (
     MAX_JSON_POINTS,
     HistoryQueryError,
@@ -22,6 +21,7 @@ from morningstar_modbus.history import (
     validate_order,
     validate_resolution,
 )
+from morningstar_modbus.history.controller_data import ControllerDataRepository, ControllerNotFoundError
 
 
 def _history_error(exc: HistoryQueryError) -> HTTPException:

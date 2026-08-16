@@ -7,6 +7,7 @@ from dataclasses import replace
 
 from morningstar_modbus.catalog.registry import GENERIC, PROFILE_BY_NAME, detect_profile, select_spec
 from morningstar_modbus.catalog.types import DeviceProfileSpec
+from morningstar_modbus.domain.models import DeviceIdentification, Endpoint, RegisterValue
 from morningstar_modbus.intelligence.capabilities import negotiate_capabilities
 from morningstar_modbus.intelligence.confidence import score
 from morningstar_modbus.intelligence.firmware import compare_versions, effective_items, version_tuple
@@ -16,8 +17,7 @@ from morningstar_modbus.intelligence.models import (
     ValidationIssue,
 )
 from morningstar_modbus.intelligence.validation import validate_values
-from morningstar_modbus.models import DeviceIdentification, Endpoint, RegisterValue
-from morningstar_modbus.transport import ReadOnlyModbusClient
+from morningstar_modbus.transports.modbus import ReadOnlyModbusClient
 
 
 def _metadata_dict(values: tuple[RegisterValue, ...]) -> dict[str, object]:

@@ -17,30 +17,34 @@ import uvicorn
 
 from morningstar_modbus.api import create_app
 from morningstar_modbus.capture import CaptureRecorder, load_capture_manifest, write_capture_bundle
+from morningstar_modbus.capture.replay import ReplayModbusClient
+from morningstar_modbus.capture.verification import verify_device
 from morningstar_modbus.catalog import get_profile
 from morningstar_modbus.config import AppConfig, load_config
-from morningstar_modbus.controller_scope import ControllerRegistry
+from morningstar_modbus.controllers.scope import ControllerRegistry
 from morningstar_modbus.discovery import discover
-from morningstar_modbus.intelligence import refresh_intelligence, resolve_device_intelligence
-from morningstar_modbus.intelligence.models import DeviceIntelligence
-from morningstar_modbus.models import (
+from morningstar_modbus.domain.models import (
     DeviceIdentification,
     DiscoveredDevice,
     Endpoint,
     ModbusExchange,
 )
+from morningstar_modbus.intelligence import refresh_intelligence, resolve_device_intelligence
+from morningstar_modbus.intelligence.models import DeviceIntelligence
+from morningstar_modbus.persistence.store import TelemetryStore
 from morningstar_modbus.polling import (
     BenchmarkThresholds,
     PollTrafficTracker,
     build_benchmark_report,
     evaluate_benchmark_stage,
 )
-from morningstar_modbus.polling_storage import PollingPerformanceStore
-from morningstar_modbus.replay import ReplayModbusClient
-from morningstar_modbus.storage import TelemetryStore
-from morningstar_modbus.transport import AsyncModbusRtuClient, AsyncModbusTcpClient, ReadOnlyModbusClient
-from morningstar_modbus.verification import verify_device
-from morningstar_modbus.watcher import Watcher
+from morningstar_modbus.polling.storage import PollingPerformanceStore
+from morningstar_modbus.runtime.watcher import Watcher
+from morningstar_modbus.transports.modbus import (
+    AsyncModbusRtuClient,
+    AsyncModbusTcpClient,
+    ReadOnlyModbusClient,
+)
 
 
 def _endpoint_arguments(parser: argparse.ArgumentParser) -> None:

@@ -16,11 +16,10 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from morningstar_modbus import __version__
+from morningstar_modbus.api.routers.controllers import attach_controller_routes
+from morningstar_modbus.api.routers.systems import attach_system_routes
 from morningstar_modbus.catalog import catalog_detail, catalog_summary
 from morningstar_modbus.config import SnmpTrapConfig, SystemApiConfig
-from morningstar_modbus.controller_api import attach_controller_routes
-from morningstar_modbus.controller_data import ControllerDataRepository
-from morningstar_modbus.controller_history import ControllerHistoryRepository
 from morningstar_modbus.history import (
     MAX_JSON_POINTS,
     HistoryQueryError,
@@ -31,12 +30,13 @@ from morningstar_modbus.history import (
     validate_order,
     validate_resolution,
 )
+from morningstar_modbus.history.controller_data import ControllerDataRepository
+from morningstar_modbus.history.retained.service import ControllerHistoryRepository
 from morningstar_modbus.intelligence import effective_register_map
-from morningstar_modbus.polling_storage import PollingPerformanceStore
-from morningstar_modbus.snmp_traps import SnmpTrapListener, SnmpTrapSettings
-from morningstar_modbus.storage import TelemetryStore
-from morningstar_modbus.system_api import attach_system_routes
-from morningstar_modbus.system_data import SystemDataRepository
+from morningstar_modbus.persistence.store import TelemetryStore
+from morningstar_modbus.polling.storage import PollingPerformanceStore
+from morningstar_modbus.snmp.traps import SnmpTrapListener, SnmpTrapSettings
+from morningstar_modbus.systems.data import SystemDataRepository
 
 LOGGER = logging.getLogger(__name__)
 

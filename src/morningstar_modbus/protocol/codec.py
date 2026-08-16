@@ -6,8 +6,8 @@ from __future__ import annotations
 import struct
 from collections.abc import Mapping
 
-from morningstar_modbus.exceptions import ModbusProtocolError
-from morningstar_modbus.models import DeviceIdentification
+from morningstar_modbus.domain.models import DeviceIdentification
+from morningstar_modbus.protocol.errors import ModbusProtocolError
 
 READ_DEVICE_IDENTIFICATION = bytes((0x2B, 0x0E, 0x01, 0x00))
 

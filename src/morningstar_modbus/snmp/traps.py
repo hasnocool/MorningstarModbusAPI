@@ -16,7 +16,7 @@ from typing import Any
 
 import aiosqlite
 
-from morningstar_modbus.event_store import EventStore
+from morningstar_modbus.persistence.events import EventStore
 
 
 @dataclass(slots=True)

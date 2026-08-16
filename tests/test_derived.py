@@ -1,7 +1,7 @@
 import pytest
 
 from morningstar_modbus.catalog.derived import derive_register_values
-from morningstar_modbus.models import RegisterValue
+from morningstar_modbus.domain.models import RegisterValue
 
 
 def register(name: str, value: float, *, raw: int = 0, unit: str | None = None) -> RegisterValue:

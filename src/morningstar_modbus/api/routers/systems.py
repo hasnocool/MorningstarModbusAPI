@@ -12,8 +12,8 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from morningstar_modbus.history import HistoryQueryError, normalize_time_range
-from morningstar_modbus.system_data import SystemDataRepository, SystemNotFoundError
-from morningstar_modbus.system_semantics import system_metric_catalog
+from morningstar_modbus.systems.data import SystemDataRepository, SystemNotFoundError
+from morningstar_modbus.systems.semantics import system_metric_catalog
 
 
 def _not_found(exc: SystemNotFoundError) -> HTTPException:

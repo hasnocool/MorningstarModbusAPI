@@ -4,13 +4,13 @@ import httpx
 import pytest
 
 from morningstar_modbus.api import create_app
+from morningstar_modbus.capture.replay import ReplayMismatch, ReplayModbusClient
+from morningstar_modbus.capture.verification import verify_device
 from morningstar_modbus.catalog import catalog_detail
+from morningstar_modbus.controllers.lifecycle import DeviceLifecycle
+from morningstar_modbus.domain.models import DiscoveredDevice, Endpoint, PollResult
 from morningstar_modbus.intelligence.models import DeviceIntelligence
-from morningstar_modbus.lifecycle import DeviceLifecycle
-from morningstar_modbus.models import DiscoveredDevice, Endpoint, PollResult
-from morningstar_modbus.replay import ReplayMismatch, ReplayModbusClient
-from morningstar_modbus.storage import TelemetryStore
-from morningstar_modbus.verification import verify_device
+from morningstar_modbus.persistence.store import TelemetryStore
 
 FIXTURE = (
     Path(__file__).parent

@@ -7,9 +7,9 @@ from dataclasses import asdict, dataclass
 from morningstar_modbus.catalog import get_profile
 from morningstar_modbus.catalog.compatibility import effective_items
 from morningstar_modbus.catalog.types import RegisterBlock
+from morningstar_modbus.domain.models import DeviceIdentification, Endpoint, RegisterValue
 from morningstar_modbus.intelligence import refresh_intelligence, resolve_device_intelligence
-from morningstar_modbus.models import DeviceIdentification, Endpoint, RegisterValue
-from morningstar_modbus.transport import ReadOnlyModbusClient
+from morningstar_modbus.transports.modbus import ReadOnlyModbusClient
 
 
 @dataclass(frozen=True, slots=True)

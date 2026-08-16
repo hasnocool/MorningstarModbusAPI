@@ -1,7 +1,9 @@
 # tests/test_profiles.py
 import pytest
 
-from morningstar_modbus.profiles import TriStarMpptProfile, fixed_point_scale, signed_16
+from morningstar_modbus.catalog.families.tristar_mppt import TRISTAR_MPPT
+from morningstar_modbus.catalog.profile import CatalogProfile
+from morningstar_modbus.catalog.scaling import fixed_point_scale, signed_16
 
 
 def test_scaling_helpers() -> None:
@@ -48,7 +50,7 @@ class FakeClient:
 
 @pytest.mark.asyncio
 async def test_tristar_profile_decodes_named_metrics() -> None:
-    values = await TriStarMpptProfile().poll(FakeClient())
+    values = await CatalogProfile(TRISTAR_MPPT).poll(FakeClient())
     by_name = {item.name: item for item in values}
 
     assert by_name["charge_state"].value == "MPPT"

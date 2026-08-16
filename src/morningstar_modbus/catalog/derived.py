@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from morningstar_modbus.models import RegisterValue
+from morningstar_modbus.domain.models import RegisterValue
 
 _INPUT_POWER_ADDRESS = 0x003B
 _MIN_OUTPUT_FOR_RATIO_CHECK_W = 25.0

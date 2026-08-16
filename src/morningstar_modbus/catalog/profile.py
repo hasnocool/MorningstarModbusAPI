@@ -10,8 +10,8 @@ from morningstar_modbus.catalog.compatibility import effective_items
 from morningstar_modbus.catalog.derived import derive_register_values
 from morningstar_modbus.catalog.scaling import decode_value
 from morningstar_modbus.catalog.types import DeviceProfileSpec, RegisterBlock, RegisterSpec
-from morningstar_modbus.models import RegisterValue
-from morningstar_modbus.transport import ReadOnlyModbusClient
+from morningstar_modbus.domain.models import RegisterValue
+from morningstar_modbus.transports.modbus import ReadOnlyModbusClient
 
 LOGGER = logging.getLogger(__name__)
 

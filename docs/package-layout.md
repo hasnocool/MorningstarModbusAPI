@@ -75,21 +75,20 @@ protocol -> transports -> discovery -> intelligence/controllers -> polling
 
 `catalog/` supplies product knowledge to discovery/intelligence/polling without depending on API or persistence presentation layers. `runtime/watcher.py` is the composition layer and may wire several domains together, but implementations should remain in their owning package.
 
-## Compatibility imports
+## Canonical imports only
 
-This refactor intentionally preserves the historical flat import paths. Modules whose canonical name changed use strict `sys.modules` aliases so the legacy path resolves to the same implementation module object. Examples:
+The project is pre-adoption, so the v0.6 development line intentionally removes the historical flat-module compatibility layer rather than carrying permanent aliases. New and existing repository code must import from the owning domain package. CI regression coverage keeps the package root thin and prevents removed flat modules from returning.
+
+Examples:
 
 ```python
-from morningstar_modbus.transport import AsyncModbusTcpClient   # supported
-from morningstar_modbus.transports import AsyncModbusTcpClient # canonical
-
-from morningstar_modbus.storage import TelemetryStore           # supported
-from morningstar_modbus.persistence import TelemetryStore       # canonical
+from morningstar_modbus.transports import AsyncModbusTcpClient
+from morningstar_modbus.persistence import TelemetryStore
+from morningstar_modbus.controllers.scope import ControllerRegistry
+from morningstar_modbus.history.retained.service import ControllerHistoryService
 ```
 
-Former flat modules that naturally became packages keep the same import path. For example, `morningstar_modbus.api`, `morningstar_modbus.polling`, `morningstar_modbus.history`, `morningstar_modbus.protocol`, and `morningstar_modbus.config` continue exporting the symbols previously provided by their `.py` modules while their implementations now live below those package directories.
-
-The compatibility layer exists to make this structural PR behavior-preserving. New code should use the canonical package paths so the legacy aliases can eventually be deprecated in a separately reviewed release.
+There is no compatibility promise for the removed pre-release import paths.
 
 ## Retained history boundary
 

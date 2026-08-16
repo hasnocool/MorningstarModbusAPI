@@ -8,8 +8,8 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
+from morningstar_modbus.domain.models import DeviceIdentification, Endpoint, ModbusExchange, RegisterValue
 from morningstar_modbus.intelligence.models import DeviceIntelligence
-from morningstar_modbus.models import DeviceIdentification, Endpoint, ModbusExchange, RegisterValue
 
 CAPTURE_SCHEMA_VERSION = 1
 

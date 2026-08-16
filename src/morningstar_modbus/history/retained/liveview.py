@@ -11,14 +11,14 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from morningstar_modbus.config import HistoryBackfillConfig
-from morningstar_modbus.controller_history_storage import ControllerHistoryRepository
-from morningstar_modbus.controller_history_types import (
+from morningstar_modbus.domain.models import DiscoveredDevice
+from morningstar_modbus.history.retained.storage import ControllerHistoryRepository
+from morningstar_modbus.history.retained.types import (
     LIVEVIEW_SOURCE,
     BackfillResult,
     ControllerDailyRecord,
     ControllerHistoryError,
 )
-from morningstar_modbus.models import DiscoveredDevice
 
 _NUMERIC_RE = re.compile(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)")
 _HOURMETER_RE = re.compile(r"(?:(?P<days>\d+)\s*d)?\s*(?:(?P<hours>\d+(?:\.\d+)?)\s*h)?", re.I)

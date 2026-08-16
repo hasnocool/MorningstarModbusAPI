@@ -4,16 +4,16 @@ from pathlib import Path
 import httpx
 import pytest
 
-import morningstar_modbus.storage as storage_module
+import morningstar_modbus.persistence.store as storage_module
 from morningstar_modbus.api import create_app
-from morningstar_modbus.models import (
+from morningstar_modbus.domain.models import (
     DeviceIdentification,
     DiscoveredDevice,
     Endpoint,
     PollResult,
     RegisterValue,
 )
-from morningstar_modbus.storage import TelemetryStore
+from morningstar_modbus.persistence.store import TelemetryStore
 
 
 async def _seed_history(tmp_path: Path, monkeypatch) -> tuple[TelemetryStore, str]:

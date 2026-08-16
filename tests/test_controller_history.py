@@ -4,23 +4,23 @@ from pathlib import Path
 import httpx
 import pytest
 
-import morningstar_modbus.controller_history_liveview as liveview_module
-import morningstar_modbus.storage as storage_module
+import morningstar_modbus.history.retained.liveview as liveview_module
+import morningstar_modbus.persistence.store as storage_module
 from morningstar_modbus.api import create_app
 from morningstar_modbus.config import HistoryBackfillConfig
-from morningstar_modbus.controller_history import (
-    ControllerHistoryBackfiller,
-    ControllerHistoryRepository,
-    parse_liveview_datalog,
-)
-from morningstar_modbus.models import (
+from morningstar_modbus.domain.models import (
     DeviceIdentification,
     DiscoveredDevice,
     Endpoint,
     PollResult,
     RegisterValue,
 )
-from morningstar_modbus.storage import TelemetryStore
+from morningstar_modbus.history.retained.service import (
+    ControllerHistoryBackfiller,
+    ControllerHistoryRepository,
+    parse_liveview_datalog,
+)
+from morningstar_modbus.persistence.store import TelemetryStore
 
 LIVEVIEW_HTML = """
 <html><body><table>
