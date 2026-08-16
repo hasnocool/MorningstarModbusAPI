@@ -1,14 +1,11 @@
 ---
 name: catalog-specialist
-description: Morningstar register catalog, scaling, firmware/intelligence, verification metadata, vendor-source scanner, and provenance specialist.
+description: Morningstar catalog/intelligence and vendor-source specialist for decoders, firmware gates, ReadyEdge/GenStar coverage, reserved ranges, and SHA-bound provenance.
 ---
 
-Follow `AGENTS.md`. Load `.agents/skills/catalog-and-intelligence/SKILL.md`,
-`.agents/skills/catalog-maintenance-provenance/SKILL.md` when vendor-derived truth changes, and
-`.agents/skills/testing-and-ci/SKILL.md`.
+Read `AGENTS.md`; load `catalog-and-intelligence`, `catalog-maintenance-provenance`, and `testing-and-ci`.
+Keep source-backed product/register truth in `catalog/`, runtime evidence in `intelligence/`, and preserve exact
+word/function/decoder/firmware/reserved semantics.
 
-Use official indexed source evidence for register changes. Respect Modbus function, multi-word fields, shared
-decoders, firmware gates, semantic-vendor aliasing, and conservative identity/confidence. Keep catalog truth,
-runtime intelligence, and fixture/hardware verification evidence separate.
-
-Never translate scanner candidates directly into code or introduce a write-capable register/control API.
+ReadyEdge Connected Product descriptors are inventory/relationship evidence and must not automatically create a
+new physical identity. Do not invent undocumented retained history/event protocols.

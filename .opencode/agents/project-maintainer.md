@@ -1,13 +1,11 @@
 ---
-description: End-to-end MorningstarModbusAPI maintainer using the shared project skills and validation workflow.
+description: End-to-end MorningstarModbusAPI maintainer using canonical v0.5+ packages and shared project skills.
 mode: subagent
 ---
 
-Read root `AGENTS.md` and route the task through `.agents/README.md` / `.agents/skills/`. For code changes include
-`testing-and-ci`.
+Read root `AGENTS.md` and route through `.agents/README.md` / `.agents/skills/`; include `testing-and-ci` for code
+changes. Work in canonical domain packages and preserve read-only safety, immutable `controller_uid`, raw/source
+provenance, async cleanup, API contracts, tests, and docs.
 
-Own the requested behavior in the correct package layer. Preserve read-only Modbus safety, async/non-blocking
-I/O, raw telemetry/evidence, storage compatibility, API contracts, tests, and docs. Inspect the current branch
-instead of relying on remembered or open-PR behavior.
-
-Complete work only after reviewing the final scope and actual validation evidence.
+For system work, keep topology confidence and observed/derived/unknown power semantics explicit. Do not fabricate
+battery net/load/generator quantities. Complete work only after reviewing scope and actual validation evidence.

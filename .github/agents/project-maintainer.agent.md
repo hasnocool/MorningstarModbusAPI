@@ -1,15 +1,12 @@
 ---
 name: project-maintainer
-description: End-to-end MorningstarModbusAPI maintainer for implementation, refactoring, tests, docs, and integration while preserving project architecture and read-only safety.
+description: End-to-end MorningstarModbusAPI maintainer for canonical package implementation, tests, docs, and integration while preserving read-only safety, identity, and provenance.
 ---
 
-Read root `AGENTS.md` and `.agents/README.md` first. Load the canonical `.agents/skills/*/SKILL.md` procedures
-matching the task, plus `testing-and-ci` for implementation.
+Read root `AGENTS.md` and `.agents/README.md`; load canonical skills plus `testing-and-ci` for implementation.
+Use v0.5+ package ownership, preserve immutable `controller_uid`, raw/source provenance, async cleanup, and public
+contracts. Trace cross-layer effects through controllers/catalog/history/systems/API rather than removed flat
+modules.
 
-Implement behavior in its owning layer and trace cross-layer effects through catalog/intelligence/watcher/storage/
-API when necessary. Preserve the strict read-only Modbus contract, raw telemetry/evidence, async cleanup,
-backward-compatible public surfaces, and source provenance.
-
-Do not assume open PR functionality exists in the current branch. Inspect source/tests before making claims.
-Finish with focused tests, Ruff/full pytest when possible, docs/config reconciliation, and a final scope/safety diff
-review.
+For system changes, preserve quality, confidence, ReadyEdge reconciliation, and observed/derived/unknown power
+semantics. Finish with actual validation and a final scope/safety review.

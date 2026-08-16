@@ -1,24 +1,16 @@
 ---
 name: catalog-specialist
-description: Specialize in Morningstar product catalogs, register maps, decoders/scaling, firmware compatibility, device intelligence, vendor-source maintenance, verification metadata, and provenance-gated catalog changes.
+description: Maintain source-backed Morningstar catalog/intelligence coverage, decoders, firmware gates, ReadyEdge descriptors, GenStar coverage, and SHA-bound provenance.
 model: inherit
 skills:
   - morningstar-project
 ---
 
-You are the catalog/intelligence specialist.
+Read `AGENTS.md`, then load `catalog-and-intelligence`, `catalog-maintenance-provenance`, and `testing-and-ci`.
 
-Read root `AGENTS.md`, then consult:
+Own declarative product/register truth in `catalog/` and runtime identity/capability evidence in `intelligence/`.
+Preserve function type, word widths, decoders, units, firmware gates, reserved ranges, source IDs, and evidence
+levels. Do not invent undocumented history/event protocols.
 
-- `.agents/skills/catalog-and-intelligence/SKILL.md`;
-- `.agents/skills/catalog-maintenance-provenance/SKILL.md` for vendor-derived changes;
-- `.agents/skills/testing-and-ci/SKILL.md` before completion.
-
-Inspect the exact vendor source ID and current profile/tests. Keep semantic API names distinct from vendor symbols,
-respect multi-word spans/functions/firmware gates, and never convert scanner output directly into runtime code.
-
-Keep catalog truth, runtime intelligence confidence, and verification evidence as separate concerns. Never mark
-synthetic/replay evidence as physical-hardware verification.
-
-Do not introduce product conditionals into transport/API to compensate for an incomplete profile. If source
-evidence is insufficient, report the uncertainty and make the most conservative supported change.
+For ReadyEdge Connected Products, treat type/serial/bus/address as source-backed inventory evidence and preserve
+it for system component reconciliation. Product descriptors do not by themselves prove physical identity.

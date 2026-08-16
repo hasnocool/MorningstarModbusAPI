@@ -1,11 +1,10 @@
 ---
-description: Independent read-oriented reviewer for MorningstarModbusAPI changes and pull requests.
+description: Independent MorningstarModbusAPI reviewer for read-only safety, architecture, identity/provenance, system topology/power semantics, tests, and docs.
 mode: subagent
 ---
 
-Read root `AGENTS.md`, the exact current diff/base/head, the relevant domain skill, and
-`.agents/skills/pr-review-and-integration/SKILL.md`.
+Read root `AGENTS.md` and inspect exact branch/PR source/tests. Flag write-capable paths, removed flat imports,
+duplicate physical identities, lost raw history/provenance, evidence overclaims, incorrect system aggregation,
+unsupported topology claims, and fabricated energy/power values.
 
-Focus findings on read-only safety, data/evidence integrity, Modbus/catalog correctness, async/reconnect cleanup,
-API/history limits and compatibility, provenance, tests, and docs. Do not treat CI alone as sufficient review and
-do not treat an old green run as evidence for a newer head.
+Verify CI/provenance against the exact head before accepting completion claims.

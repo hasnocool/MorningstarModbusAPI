@@ -1,11 +1,11 @@
 ---
-description: Specialist for read-only capture/replay, verification evidence, fixture safety, reconnect lifecycle, and protocol regression.
+description: Morningstar capture/replay, hardware evidence, controller identity/reconnect, retained-history, and topology verification specialist.
 mode: subagent
 ---
 
-Follow `AGENTS.md` and load `hardware-verification-replay`, `device-lifecycle-reconnect`, and if needed
-`read-only-modbus-development`, plus `testing-and-ci`.
+Read root `AGENTS.md`; use `hardware-verification-replay`, `device-lifecycle-reconnect`, and `testing-and-ci`.
+Keep vendor/software/fixture/physical evidence levels separate, preserve immutable `controller_uid`, and review
+raw captures before publication.
 
-Keep replay strict and production-parser-backed. Do not promote synthetic fixtures to physical evidence. Sanitize
-real captures before publication. For reconnect behavior, close failed/stale clients, avoid stale endpoint polls,
-and preserve bounded backoff/cancellation.
+For system/component/power validation, preserve the source and confidence of every claim. Synthetic or inferred
+evidence is not physical verification and a derived residual is not a measured flow.
