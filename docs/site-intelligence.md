@@ -43,6 +43,11 @@ power with prior-day values from the same local UTC time window and reports P10,
 A baseline remains `insufficient_evidence` until at least three comparable prior days exist. No Internet,
 weather service, irradiance API, or cloud model is required.
 
+Baseline history is aggregated inside SQLite per 15-minute bucket, controller, and register alias before the
+metric's alias-priority and cross-controller semantics are applied. The work is therefore bounded by bucket
+count rather than raw observation volume, so high-granularity capture never trips the per-observation
+source guard that protects explicit history queries.
+
 This intentionally makes the first intelligence release useful on isolated LAN and off-grid deployments.
 Weather-aware expected production can be layered on later as additional evidence rather than replacing the
 local baseline.

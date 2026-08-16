@@ -828,13 +828,12 @@ class SiteIntelligenceService:
         metric = metrics.get("solar_input_power_w", {}) if isinstance(metrics, dict) else {}
         current = _numeric(metric.get("value")) if isinstance(metric, dict) else None
 
-        history = await self.systems.history(
+        history = await self.systems.bucketed_metric_history(
             system_uid,
             "solar_input_power_w",
             start=(current_time - timedelta(days=self.policy.production_history_days)).isoformat(),
             end=current_time.isoformat(),
             resolution="15m",
-            max_points=20_000,
         )
         target_minutes = current_time.hour * 60 + current_time.minute
         by_day: dict[str, list[float]] = defaultdict(list)
