@@ -68,7 +68,8 @@ def attach_system_routes(app: FastAPI, data: SystemDataRepository) -> None:
     """Attach the read-only system/site API to an existing FastAPI application."""
     components = SystemComponentService(data)
     power = SystemPowerService(data, components)
-    intelligence = SiteIntelligenceService(data.path, data)
+    path = getattr(data, "path", None)
+    intelligence = SiteIntelligenceService(str(path), data) if path else None
 
     @app.get("/v1/systems/metrics/catalog")
     async def system_metric_definitions() -> list[dict[str, object]]:
@@ -218,10 +219,17 @@ def attach_system_routes(app: FastAPI, data: SystemDataRepository) -> None:
             seen_events: set[str] = set()
             last_heartbeat = time.monotonic()
             last_intelligence_scan = 0.0
-            intelligence_interval = max(5.0, intelligence.policy.scan_interval_seconds)
+            intelligence_interval = (
+                max(5.0, intelligence.policy.scan_interval_seconds)
+                if intelligence is not None
+                else 60.0
+            )
             while not await request.is_disconnected():
                 now = time.monotonic()
-                if now - last_intelligence_scan >= intelligence_interval:
+                if (
+                    intelligence is not None
+                    and now - last_intelligence_scan >= intelligence_interval
+                ):
                     await intelligence.scan(system_uid)
                     last_intelligence_scan = now
 
@@ -262,4 +270,5 @@ def attach_system_routes(app: FastAPI, data: SystemDataRepository) -> None:
             },
         )
 
-    attach_incident_routes(app, intelligence)
+    if intelligence is not None:
+        attach_incident_routes(app, intelligence)
