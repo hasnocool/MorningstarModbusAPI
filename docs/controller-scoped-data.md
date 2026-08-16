@@ -1,10 +1,10 @@
 # Immutable controller identity and controller-scoped data
 
-MorningstarModbusAPI treats the physical Morningstar controller as the stable application-facing entity while preserving the existing endpoint/device rows as raw storage provenance.
+MorningstarModbusAPI treats the physical Morningstar controller as the stable application-facing entity while preserving endpoint/device rows as raw storage provenance.
 
 ## Identity model
 
-There are now three related identifiers:
+There are three related identifiers:
 
 - `controller_uid` — generated once and immutable; applications should persist this identifier;
 - `controller_id` — the current strongest evidence-derived identity alias, such as a Morningstar serial identity;
@@ -20,22 +20,19 @@ ctrl_8b17...
     `-- current alias: morningstar:tristar_mppt:ts123456
 ```
 
-The old alias remains resolvable. Identity promotion changes which alias is current, not which physical controller the application is referring to.
+The old alias remains resolvable. Identity promotion changes which alias is current, not which physical controller the application refers to.
 
-## Additive schema
+## Additive schema and historical ownership
 
-This feature adds:
+The controller identity layer adds persistent physical-controller records and identity aliases while retaining the existing device, connection, location/evidence, raw poll/register history, controller-retained daily history, error, and polling-performance rows.
 
-- `physical_controllers` — immutable UID, canonical telemetry device ID, current identity alias, first/last seen;
-- `controller_identity_aliases` — all evidence-derived controller IDs that have referred to the same immutable UID.
+Historical foreign keys are not rewritten merely to make queries convenient. Raw observations remain owned by their original `device_id`.
 
-The existing `controller_identities`, `controller_device_members`, connection/location/evidence tables, `devices`, raw poll/register history, retained daily history, errors, and polling-performance rows are not rewritten.
+## Unified physical-controller history
 
-## Unified history
+A physical controller can have historical data under several device IDs. Controller-scoped queries resolve the immutable UID to all historical members and query them as one ordered dataset.
 
-A physical controller can have historical data under several device IDs from before canonical identity was introduced. Controller-scoped queries resolve the UID to all `controller_device_members` and query those rows as one ordered dataset.
-
-Raw observations retain their original owner as `source_device_id`:
+Raw observations retain their original owner:
 
 ```json
 {
@@ -46,15 +43,51 @@ Raw observations retain their original owner as `source_device_id`:
 }
 ```
 
-This gives consumers one continuous controller timeline without mutating evidence.
+Controller-scoped aggregation combines member histories before calculating buckets/statistics, so results describe the physical-controller timeline rather than merging independently aggregated endpoint summaries.
 
-Controller-scoped aggregation combines member histories before calculating buckets/statistics, so numeric counts/averages and text transition counts are computed over the physical controller timeline rather than merged from already-aggregated endpoint results.
+## Retained daily evidence
+
+Controller-retained daily history is also resolved through the immutable physical-controller scope. A retained row may have been attached to a historical `device_id`, but controller routes follow the physical controller and select the relevant retained evidence across its member rows.
+
+Retained daily evidence remains a separate provenance class from raw polling. It is never expanded into fabricated high-frequency observations.
+
+## v0.6 reconciliation and energy analytics
+
+The v0.6 analytics layer is controller-scoped for the same reason raw history is controller-scoped: endpoint identity changes must not split continuity and energy accounting for one physical controller.
+
+New controller routes include:
+
+```http
+GET /v1/controllers/{controller_uid}/history/coverage
+GET /v1/controllers/{controller_uid}/history/gaps
+GET /v1/controllers/{controller_uid}/energy/daily
+GET /v1/controllers/{controller_uid}/energy/summary
+```
+
+The analytics layer combines evidence only at read time:
+
+```text
+controller_uid
+    |
+    +-- historical device member A ---- raw poll history
+    +-- historical device member B ---- raw poll history
+    +-- retained daily rows ------------ controller evidence
+    |
+    `--> reconciliation analytics
+           |-- days with persisted live samples
+           |-- recovered / partial / missing gaps
+           |-- controller-reported daily Wh
+           |-- locally integrated output_power Wh
+           `-- discrepancy + quality/provenance
+```
+
+A `recovered` day means no persisted local poll sample exists for that day but a complete retained daily record does. It does not mean intra-day samples have been reconstructed.
 
 ## Controller-first API
 
-`GET /v1/controllers` now includes both `controller_uid` and the compatibility `controller_id`.
+`GET /v1/controllers` includes both `controller_uid` and compatibility `controller_id` information.
 
-Controller-scoped routes use the immutable UID:
+Controller-scoped routes include:
 
 - `GET /v1/controllers/{controller_uid}`
 - `GET /v1/controllers/{controller_uid}/latest`
@@ -65,24 +98,36 @@ Controller-scoped routes use the immutable UID:
 - `GET /v1/controllers/{controller_uid}/history/summary`
 - `GET /v1/controllers/{controller_uid}/history/controller-daily`
 - `GET /v1/controllers/{controller_uid}/history/controller-daily/summary`
+- `GET /v1/controllers/{controller_uid}/history/coverage`
+- `GET /v1/controllers/{controller_uid}/history/gaps`
+- `GET /v1/controllers/{controller_uid}/energy/daily`
+- `GET /v1/controllers/{controller_uid}/energy/summary`
 - `GET /v1/controllers/{controller_uid}/history/export`
 - `GET /v1/controllers/{controller_uid}/polling/performance`
 - `GET /v1/controllers/{controller_uid}/polling/history`
 
-The legacy `/v1/devices/...` API remains available and keeps its existing device-scoped behavior.
+The legacy `/v1/devices/...` API remains available and keeps raw device-scoped behavior.
 
 ## Runtime ownership
 
-The watcher now receives immutable controller UIDs from `ControllerRegistry`. Its existing endpoint selection, stale-client cleanup, retry/backoff, and history-backfill behavior remains unchanged, but lifecycle ownership no longer resets merely because identity evidence is promoted from endpoint/USB fallback to a Morningstar controller serial.
+The watcher receives immutable controller UIDs from `ControllerRegistry`. Endpoint selection, stale-client cleanup, retry/backoff, polling, and retained-history scheduling therefore remain owned by the physical controller even if identity evidence is promoted.
 
-`benchmark-polling` also registers persistent benchmark results through the controller registry rather than inserting an endpoint-key device directly.
+`benchmark-polling` likewise associates persisted benchmark evidence with controller identity rather than treating a transient endpoint string as the application's physical identity.
 
-## Provenance and migration behavior
+## Exports and provenance
 
-No historical foreign keys are rewritten. Existing installations are bootstrapped by associating each current persisted controller identity with a generated immutable UID. If stronger identity evidence appears later, the current alias changes while the UID and canonical telemetry ownership remain stable.
+Raw controller exports include both `controller_uid` and `source_device_id`. Aggregated exports include `controller_uid`; an aggregate may span several historical device rows by design.
 
-Raw exports include both `controller_uid` and `source_device_id`. Aggregated exports include `controller_uid`; the aggregate can span multiple source device IDs by design.
+Retained daily and reconciliation/energy responses publish explicit source/quality fields instead of silently collapsing controller evidence and local polling into one value.
+
+## Relationship to system/site scope
+
+`system_uid` is a separate grouping layer above one or more immutable controller UIDs. System metrics, component graphs, power flow, energy ledger, events, and SSE are derived from controller scopes rather than replacing them.
+
+Use controller routes when the question is about one physical controller. Use system routes when the question is about a site or coordinated set of controllers.
 
 ## Safety boundary
 
-This is an identity/query architecture change only. It does not add Modbus write operations, controller configuration, resets, equalization triggers, coil writes, or arbitrary function-code passthrough. The service remains read only.
+Controller identity, retained history, reconciliation, and energy analytics are read-only/query features. They do not add Modbus write operations, controller configuration, resets, equalization triggers, coil writes, or arbitrary function-code passthrough.
+
+See [`api.md`](api.md), [`controller-history-backfill.md`](controller-history-backfill.md), and [`history-reconciliation-and-energy.md`](history-reconciliation-and-energy.md).
