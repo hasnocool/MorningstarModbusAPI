@@ -37,7 +37,13 @@ def _finding(*, severity: str = "warning") -> dict[str, object]:
         "expected_low": 0.0,
         "expected_high": 0.5,
         "unit": "count",
-        "evidence": [{"code": "test", "message": "test evidence", "value": 1}],
+        "evidence": [
+            {
+                "code": "test",
+                "message": "test evidence",
+                "value": 1,
+            }
+        ],
     }
 
 
@@ -109,7 +115,9 @@ async def test_incident_store_opens_updates_and_resolves_only_evaluated_detector
 
     not_evaluated = await store.reconcile("sys_default", [], evaluated_keys=set())
     assert not_evaluated == []
-    assert (await store.get(incident_uid))["state"] == "active"  # type: ignore[index]
+    active = await store.get(incident_uid)
+    assert active is not None
+    assert active["state"] == "active"
 
     resolved = await store.reconcile("sys_default", [], evaluated_keys={key})
     assert [item["transition"] for item in resolved] == ["resolved"]
@@ -117,7 +125,9 @@ async def test_incident_store_opens_updates_and_resolves_only_evaluated_detector
 
 
 @pytest.mark.asyncio
-async def test_site_intelligence_detects_and_resolves_electrical_anomalies(tmp_path: Path) -> None:
+async def test_site_intelligence_detects_and_resolves_electrical_anomalies(
+    tmp_path: Path,
+) -> None:
     store = TelemetryStore(str(tmp_path / "telemetry.sqlite3"))
     await store.initialize()
     registry = ControllerRegistry(store.path)
@@ -126,7 +136,13 @@ async def test_site_intelligence_detects_and_resolves_electrical_anomalies(tmp_p
 
     await store.save_poll(
         device_id,
-        _poll(device, terminal_v=14.4, sense_v=13.9, input_w=400.0, output_w=260.0),
+        _poll(
+            device,
+            terminal_v=14.4,
+            sense_v=13.9,
+            input_w=400.0,
+            output_w=260.0,
+        ),
     )
     systems = SystemDataRepository(store.path)
     service = SiteIntelligenceService(store.path, systems)
@@ -141,7 +157,13 @@ async def test_site_intelligence_detects_and_resolves_electrical_anomalies(tmp_p
 
     await store.save_poll(
         device_id,
-        _poll(device, terminal_v=14.2, sense_v=14.18, input_w=400.0, output_w=380.0),
+        _poll(
+            device,
+            terminal_v=14.2,
+            sense_v=14.18,
+            input_w=400.0,
+            output_w=380.0,
+        ),
     )
     incidents = await service.scan("sys_default")
     latest_by_detector = {
@@ -163,6 +185,7 @@ async def test_site_intelligence_api_exposes_baselines_incidents_and_transparent
     tmp_path: Path,
 ) -> None:
     store = TelemetryStore(str(tmp_path / "telemetry.sqlite3"))
+    await store.initialize()
     app = create_app(store)
     transport = httpx.ASGITransport(app=app)
 
