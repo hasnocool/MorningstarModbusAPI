@@ -4,11 +4,9 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from collections import defaultdict
 from datetime import UTC, datetime
 from statistics import median
-from typing import Any
 
 import aiosqlite
 
@@ -118,8 +116,12 @@ class SystemDataRepository:
             await db.executescript(_SYSTEM_SCHEMA)
             await db.execute(
                 """
-                INSERT INTO systems(system_uid, name, description, auto_discover, created_at, updated_at)
-                VALUES (?, ?, 'Automatically groups all discovered physical Morningstar controllers.', 1, ?, ?)
+                INSERT INTO systems(
+                    system_uid, name, description, auto_discover, created_at, updated_at
+                ) VALUES (
+                    ?, ?, 'Automatically groups all discovered physical Morningstar controllers.',
+                    1, ?, ?
+                )
                 ON CONFLICT(system_uid) DO UPDATE SET updated_at=excluded.updated_at
                 """,
                 (self.default_system_uid, self.default_system_name, now, now),
@@ -206,7 +208,10 @@ class SystemDataRepository:
                     (system_uid,),
                 )
             ).fetchall()
-        memberships = {str(uid): {"role": role, "added_at": added_at} for uid, role, added_at in rows}
+        memberships = {
+            str(uid): {"role": role, "added_at": added_at}
+            for uid, role, added_at in rows
+        }
         output: list[dict[str, object]] = []
         for controller in all_controllers:
             uid = str(controller["controller_uid"])
@@ -228,16 +233,16 @@ class SystemDataRepository:
         aliases = set(spec.registers)
         for controller in controllers:
             profile_name = str(controller.get("profile") or "")
-            try:
-                profile = get_profile(profile_name)
-            except (KeyError, ValueError):
-                continue
+            profile = get_profile(profile_name)
             if aliases.intersection(profile.spec.register_names):
                 eligible.add(str(controller["controller_uid"]))
         return eligible
 
     @staticmethod
-    def _select_value(sample: dict[str, object], spec: SystemMetricSpec) -> dict[str, object] | None:
+    def _select_value(
+        sample: dict[str, object],
+        spec: SystemMetricSpec,
+    ) -> dict[str, object] | None:
         by_name = {
             str(value.get("register_name")): value
             for value in sample.get("values", [])
@@ -266,9 +271,12 @@ class SystemDataRepository:
         contributor_uids = {str(item["controller_uid"]) for item in observations}
         expected = len(expected_controller_uids)
         contributors = len(contributor_uids)
-        quality = "empty" if contributors == 0 else "complete" if expected and contributors >= expected else "partial"
-        if expected == 0 and contributors:
+        if contributors == 0:
+            quality = "empty"
+        elif expected == 0 or contributors >= expected:
             quality = "complete"
+        else:
+            quality = "partial"
 
         value: object = None
         if spec.aggregation == "state_set":
@@ -320,7 +328,10 @@ class SystemDataRepository:
         system = await self.system(identifier)
         controllers = await self.controllers(str(system["system_uid"]))
         samples = await asyncio.gather(
-            *(self.controllers_data.latest(str(controller["controller_uid"])) for controller in controllers)
+            *(
+                self.controllers_data.latest(str(controller["controller_uid"]))
+                for controller in controllers
+            )
         )
         metrics: dict[str, object] = {}
         for spec in SYSTEM_METRICS:
@@ -344,7 +355,9 @@ class SystemDataRepository:
                 self._eligible_controller_uids(controllers, spec),
             )
         timestamps = [
-            str(sample.get("observed_at")) for sample in samples if sample is not None and sample.get("observed_at")
+            str(sample.get("observed_at"))
+            for sample in samples
+            if sample is not None and sample.get("observed_at")
         ]
         return {
             "system_uid": system["system_uid"],
@@ -372,13 +385,26 @@ class SystemDataRepository:
         faults = dict(latest["metrics"]["faults"])
         alarms = dict(latest["metrics"]["alarms"])
         active_faults = sum(
-            1 for source in faults.get("sources", []) if not _state_clear(source.get("value"))
+            1
+            for source in faults.get("sources", [])
+            if not _state_clear(source.get("value"))
         )
         active_alarms = sum(
-            1 for source in alarms.get("sources", []) if not _state_clear(source.get("value"))
+            1
+            for source in alarms.get("sources", [])
+            if not _state_clear(source.get("value"))
         )
-        offline = sum(count for state, count in status_counts.items() if state not in {"online"})
-        overall = "critical" if active_faults else "warning" if active_alarms or offline else "ok"
+        offline = sum(
+            count
+            for state, count in status_counts.items()
+            if state != "online"
+        )
+        if active_faults:
+            overall = "critical"
+        elif active_alarms or offline:
+            overall = "warning"
+        else:
+            overall = "ok"
         return {
             "system_uid": latest["system_uid"],
             "status": overall,
@@ -390,7 +416,10 @@ class SystemDataRepository:
             "charge_state": latest["metrics"]["charge_state"],
         }
 
-    async def _scope_map(self, identifier: str) -> tuple[str, dict[str, str], list[dict[str, object]]]:
+    async def _scope_map(
+        self,
+        identifier: str,
+    ) -> tuple[str, dict[str, str], list[dict[str, object]]]:
         system_uid = await self._resolve_uid(identifier)
         controllers = await self.controllers(system_uid)
         mapping: dict[str, str] = {}
@@ -415,7 +444,10 @@ class SystemDataRepository:
         if spec is None:
             raise ValueError(f"unknown system metric: {metric_name}")
         normalized_resolution = resolution.strip().lower()
-        if normalized_resolution != "raw" and normalized_resolution not in _RESOLUTION_SECONDS:
+        if (
+            normalized_resolution != "raw"
+            and normalized_resolution not in _RESOLUTION_SECONDS
+        ):
             raise ValueError("resolution must be raw, 1m, 5m, 15m, 1h, or 1d")
         system_uid, device_to_controller, controllers = await self._scope_map(identifier)
         if not device_to_controller:
@@ -458,17 +490,20 @@ class SystemDataRepository:
             ).fetchall()
         if len(rows) > max_points:
             raise ValueError(
-                f"query exceeds {max_points} source observations; narrow the range or use a coarser window"
+                f"query exceeds {max_points} source observations; "
+                "narrow the range or use a coarser window"
             )
         priority = {name: index for index, name in enumerate(aliases)}
-        observations: list[dict[str, object]] = []
         chosen: dict[tuple[str, str], dict[str, object]] = {}
         for row in rows:
             device_id = str(row["device_id"])
             controller_uid = device_to_controller.get(device_id)
             if controller_uid is None:
                 continue
-            value: object = row["numeric_value"] if row["numeric_value"] is not None else row["text_value"]
+            if row["numeric_value"] is not None:
+                value: object = row["numeric_value"]
+            else:
+                value = row["text_value"]
             item = {
                 "controller_uid": controller_uid,
                 "source_device_id": device_id,
@@ -479,9 +514,17 @@ class SystemDataRepository:
             }
             key = (controller_uid, str(row["observed_at"]))
             previous = chosen.get(key)
-            if previous is None or priority[item["register_name"]] < priority[previous["register_name"]]:
+            current_name = str(item["register_name"])
+            if previous is None:
                 chosen[key] = item
-        observations = sorted(chosen.values(), key=lambda item: str(item["observed_at"]))
+                continue
+            previous_name = str(previous["register_name"])
+            if priority[current_name] < priority[previous_name]:
+                chosen[key] = item
+        observations = sorted(
+            chosen.values(),
+            key=lambda item: str(item["observed_at"]),
+        )
         if normalized_resolution == "raw":
             points: list[dict[str, object]] = observations
         else:
@@ -518,8 +561,10 @@ class SystemDataRepository:
                            cc.usb_serial, cc.active, cc.last_seen
                     FROM system_members sm
                     JOIN physical_controllers pc ON pc.controller_uid=sm.controller_uid
-                    LEFT JOIN controller_identities ci ON ci.controller_id=pc.current_controller_id
-                    LEFT JOIN controller_connections cc ON cc.controller_id=pc.current_controller_id
+                    LEFT JOIN controller_identities ci
+                      ON ci.controller_id=pc.current_controller_id
+                    LEFT JOIN controller_connections cc
+                      ON cc.controller_id=pc.current_controller_id
                     WHERE sm.system_uid=?
                     ORDER BY pc.controller_uid, cc.active DESC, cc.last_seen DESC
                     """,
@@ -547,7 +592,10 @@ class SystemDataRepository:
             transport = str(row["transport"])
             target = str(row["target"])
             port = int(row["port"] or 0)
-            endpoint_id = f"{transport}:{target}:{port}" if transport == "tcp" else f"{transport}:{target}"
+            if transport == "tcp":
+                endpoint_id = f"{transport}:{target}:{port}"
+            else:
+                endpoint_id = f"{transport}:{target}"
             endpoint_nodes.setdefault(
                 endpoint_id,
                 {
@@ -568,7 +616,12 @@ class SystemDataRepository:
             }
             links.append(link)
             if transport == "tcp" and row["active"]:
-                tcp_groups[(target, port)].append({"controller_uid": uid, "unit_id": int(row["unit_id"])})
+                tcp_groups[(target, port)].append(
+                    {
+                        "controller_uid": uid,
+                        "unit_id": int(row["unit_id"]),
+                    }
+                )
         bridge_candidates = [
             {
                 "target": target,
@@ -577,9 +630,10 @@ class SystemDataRepository:
                 "confidence": "inferred",
                 "controllers": members,
                 "reason": (
-                    "Multiple physical controller identities are reachable through one TCP endpoint at different "
-                    "Modbus unit IDs. This is consistent with Morningstar Ethernet-to-serial bridging but is not "
-                    "asserted as proof of bridge topology."
+                    "Multiple physical controller identities are reachable through one "
+                    "TCP endpoint at different Modbus unit IDs. This is consistent with "
+                    "Morningstar Ethernet-to-serial bridging but is not asserted as proof "
+                    "of bridge topology."
                 ),
             }
             for (target, port), members in tcp_groups.items()
@@ -609,152 +663,180 @@ class SystemDataRepository:
             limit=limit,
             include_unassigned=system_uid == self.default_system_uid,
         )
-        if device_to_controller:
-            device_ids = tuple(device_to_controller)
-            placeholders = ",".join("?" for _ in device_ids)
-            range_clauses: list[str] = []
-            range_params: list[object] = []
-            if start is not None:
-                range_clauses.append("observed_at>=?")
-                range_params.append(start)
-            if end is not None:
-                range_clauses.append("observed_at<?")
-                range_params.append(end)
-            error_where = f"device_id IN ({placeholders})"
-            if range_clauses:
-                error_where += " AND " + " AND ".join(range_clauses)
-            async with aiosqlite.connect(self.path) as db:
-                db.row_factory = aiosqlite.Row
-                error_rows = await (
-                    await db.execute(
-                        f"""
-                        SELECT id, device_id, observed_at, error
-                        FROM poll_errors
-                        WHERE {error_where}
-                        ORDER BY observed_at DESC
-                        LIMIT ?
-                        """,
-                        (*device_ids, *range_params, limit),
-                    )
-                ).fetchall()
-                for row in error_rows:
-                    events.append(
-                        {
-                            "id": f"poll-error:{row['id']}",
-                            "controller_uid": device_to_controller[str(row["device_id"])],
-                            "observed_at": str(row["observed_at"]),
-                            "event_type": "COMMUNICATION_ERROR",
-                            "severity": "warning",
-                            "source": "modbus-poll",
-                            "message": str(row["error"]),
-                            "payload": {"source_device_id": str(row["device_id"])},
-                        }
-                    )
-                try:
-                    sync_rows = await (
-                        await db.execute(
-                            f"""
-                            SELECT id, device_id, attempted_at, source, status,
-                                   records_seen, records_written, oldest_day, newest_day, error
-                            FROM controller_history_syncs
-                            WHERE device_id IN ({placeholders})
-                            ORDER BY attempted_at DESC
-                            LIMIT ?
-                            """,
-                            (*device_ids, limit),
-                        )
-                    ).fetchall()
-                except aiosqlite.OperationalError:
-                    sync_rows = []
-                for row in sync_rows:
-                    timestamp = str(row["attempted_at"])
-                    if start is not None and timestamp < start:
-                        continue
-                    if end is not None and timestamp >= end:
-                        continue
-                    ok = str(row["status"]) == "ok"
-                    events.append(
-                        {
-                            "id": f"history-sync:{row['id']}",
-                            "controller_uid": device_to_controller[str(row["device_id"])],
-                            "observed_at": timestamp,
-                            "event_type": "HISTORY_BACKFILL_COMPLETED" if ok else "HISTORY_BACKFILL_FAILED",
-                            "severity": "info" if ok else "warning",
-                            "source": str(row["source"]),
-                            "message": str(row["error"] or ""),
-                            "payload": {
-                                "records_seen": int(row["records_seen"]),
-                                "records_written": int(row["records_written"]),
-                                "oldest_day": row["oldest_day"],
-                                "newest_day": row["newest_day"],
-                            },
-                        }
-                    )
-                transition_clauses = [
-                    f"s.device_id IN ({placeholders})",
-                    "v.register_name IN ('charge_state','charger_state','faults','fault_state','alarms','alarm_state')",
-                ]
-                transition_params: list[object] = list(device_ids)
-                if start is not None:
-                    transition_clauses.append("s.observed_at>=?")
-                    transition_params.append(start)
-                if end is not None:
-                    transition_clauses.append("s.observed_at<?")
-                    transition_params.append(end)
-                transition_rows = await (
-                    await db.execute(
-                        f"""
-                        SELECT s.device_id, s.observed_at, s.id AS sample_id,
-                               v.register_name, v.numeric_value, v.text_value
-                        FROM register_values v
-                        JOIN poll_samples s ON s.id=v.sample_id
-                        WHERE {' AND '.join(transition_clauses)}
-                        ORDER BY s.observed_at DESC, s.id DESC
-                        LIMIT ?
-                        """,
-                        (*transition_params, max(limit * 10, 1000)),
-                    )
-                ).fetchall()
-            previous: dict[tuple[str, str], object] = {}
-            for row in reversed(transition_rows):
-                controller_uid = device_to_controller[str(row["device_id"])]
-                register_name = str(row["register_name"])
-                value: object = row["numeric_value"] if row["numeric_value"] is not None else row["text_value"]
-                key = (controller_uid, register_name)
-                old = previous.get(key)
-                previous[key] = value
-                if old is None or old == value:
-                    continue
-                normalized_name = register_name.lower()
-                event_type = "STATE_CHANGED"
-                severity = "info"
-                if "charge" in normalized_name:
-                    state = str(value).upper()
-                    if "FLOAT" in state:
-                        event_type = "FLOAT_ENTERED"
-                    elif "ABSOR" in state:
-                        event_type = "ABSORPTION_ENTERED"
-                    elif "EQUAL" in state:
-                        event_type = "EQUALIZATION_ENTERED"
-                    else:
-                        event_type = "CHARGE_STATE_CHANGED"
-                elif "fault" in normalized_name:
-                    event_type = "FAULT_CLEARED" if _state_clear(value) else "FAULT_STARTED"
-                    severity = "info" if _state_clear(value) else "critical"
-                elif "alarm" in normalized_name:
-                    event_type = "ALARM_CLEARED" if _state_clear(value) else "ALARM_STARTED"
-                    severity = "info" if _state_clear(value) else "warning"
+        if not device_to_controller:
+            return events[: max(1, min(limit, 5000))]
+
+        device_ids = tuple(device_to_controller)
+        placeholders = ",".join("?" for _ in device_ids)
+        range_clauses: list[str] = []
+        range_params: list[object] = []
+        if start is not None:
+            range_clauses.append("observed_at>=?")
+            range_params.append(start)
+        if end is not None:
+            range_clauses.append("observed_at<?")
+            range_params.append(end)
+        error_where = f"device_id IN ({placeholders})"
+        if range_clauses:
+            error_where += " AND " + " AND ".join(range_clauses)
+
+        async with aiosqlite.connect(self.path) as db:
+            db.row_factory = aiosqlite.Row
+            error_rows = await (
+                await db.execute(
+                    f"""
+                    SELECT id, device_id, observed_at, error
+                    FROM poll_errors
+                    WHERE {error_where}
+                    ORDER BY observed_at DESC
+                    LIMIT ?
+                    """,
+                    (*device_ids, *range_params, limit),
+                )
+            ).fetchall()
+            for row in error_rows:
                 events.append(
                     {
-                        "id": f"transition:{controller_uid}:{row['sample_id']}:{register_name}",
-                        "controller_uid": controller_uid,
+                        "id": f"poll-error:{row['id']}",
+                        "controller_uid": device_to_controller[str(row["device_id"])],
                         "observed_at": str(row["observed_at"]),
-                        "event_type": event_type,
-                        "severity": severity,
-                        "source": "live-modbus",
-                        "message": "",
-                        "payload": {"register_name": register_name, "previous": old, "value": value},
+                        "event_type": "COMMUNICATION_ERROR",
+                        "severity": "warning",
+                        "source": "modbus-poll",
+                        "message": str(row["error"]),
+                        "payload": {"source_device_id": str(row["device_id"])},
                     }
                 )
-        events.sort(key=lambda item: (str(item.get("observed_at") or ""), str(item.get("id") or "")), reverse=True)
+            try:
+                sync_rows = await (
+                    await db.execute(
+                        f"""
+                        SELECT id, device_id, attempted_at, source, status,
+                               records_seen, records_written, oldest_day, newest_day, error
+                        FROM controller_history_syncs
+                        WHERE device_id IN ({placeholders})
+                        ORDER BY attempted_at DESC
+                        LIMIT ?
+                        """,
+                        (*device_ids, limit),
+                    )
+                ).fetchall()
+            except aiosqlite.OperationalError:
+                sync_rows = []
+            for row in sync_rows:
+                timestamp = str(row["attempted_at"])
+                if start is not None and timestamp < start:
+                    continue
+                if end is not None and timestamp >= end:
+                    continue
+                ok = str(row["status"]) == "ok"
+                events.append(
+                    {
+                        "id": f"history-sync:{row['id']}",
+                        "controller_uid": device_to_controller[str(row["device_id"])],
+                        "observed_at": timestamp,
+                        "event_type": (
+                            "HISTORY_BACKFILL_COMPLETED"
+                            if ok
+                            else "HISTORY_BACKFILL_FAILED"
+                        ),
+                        "severity": "info" if ok else "warning",
+                        "source": str(row["source"]),
+                        "message": str(row["error"] or ""),
+                        "payload": {
+                            "records_seen": int(row["records_seen"]),
+                            "records_written": int(row["records_written"]),
+                            "oldest_day": row["oldest_day"],
+                            "newest_day": row["newest_day"],
+                        },
+                    }
+                )
+            transition_clauses = [
+                f"s.device_id IN ({placeholders})",
+                (
+                    "v.register_name IN ('charge_state','charger_state','faults',"
+                    "'fault_state','alarms','alarm_state')"
+                ),
+            ]
+            transition_params: list[object] = list(device_ids)
+            if start is not None:
+                transition_clauses.append("s.observed_at>=?")
+                transition_params.append(start)
+            if end is not None:
+                transition_clauses.append("s.observed_at<?")
+                transition_params.append(end)
+            transition_rows = await (
+                await db.execute(
+                    f"""
+                    SELECT s.device_id, s.observed_at, s.id AS sample_id,
+                           v.register_name, v.numeric_value, v.text_value
+                    FROM register_values v
+                    JOIN poll_samples s ON s.id=v.sample_id
+                    WHERE {' AND '.join(transition_clauses)}
+                    ORDER BY s.observed_at DESC, s.id DESC
+                    LIMIT ?
+                    """,
+                    (*transition_params, max(limit * 10, 1000)),
+                )
+            ).fetchall()
+
+        previous: dict[tuple[str, str], object] = {}
+        for row in reversed(transition_rows):
+            controller_uid = device_to_controller[str(row["device_id"])]
+            register_name = str(row["register_name"])
+            if row["numeric_value"] is not None:
+                value: object = row["numeric_value"]
+            else:
+                value = row["text_value"]
+            key = (controller_uid, register_name)
+            old = previous.get(key)
+            previous[key] = value
+            if old is None or old == value:
+                continue
+            normalized_name = register_name.lower()
+            event_type = "STATE_CHANGED"
+            severity = "info"
+            if "charge" in normalized_name:
+                state = str(value).upper()
+                if "FLOAT" in state:
+                    event_type = "FLOAT_ENTERED"
+                elif "ABSOR" in state:
+                    event_type = "ABSORPTION_ENTERED"
+                elif "EQUAL" in state:
+                    event_type = "EQUALIZATION_ENTERED"
+                else:
+                    event_type = "CHARGE_STATE_CHANGED"
+            elif "fault" in normalized_name:
+                event_type = (
+                    "FAULT_CLEARED" if _state_clear(value) else "FAULT_STARTED"
+                )
+                severity = "info" if _state_clear(value) else "critical"
+            elif "alarm" in normalized_name:
+                event_type = (
+                    "ALARM_CLEARED" if _state_clear(value) else "ALARM_STARTED"
+                )
+                severity = "info" if _state_clear(value) else "warning"
+            events.append(
+                {
+                    "id": f"transition:{controller_uid}:{row['sample_id']}:{register_name}",
+                    "controller_uid": controller_uid,
+                    "observed_at": str(row["observed_at"]),
+                    "event_type": event_type,
+                    "severity": severity,
+                    "source": "live-modbus",
+                    "message": "",
+                    "payload": {
+                        "register_name": register_name,
+                        "previous": old,
+                        "value": value,
+                    },
+                }
+            )
+        events.sort(
+            key=lambda item: (
+                str(item.get("observed_at") or ""),
+                str(item.get("id") or ""),
+            ),
+            reverse=True,
+        )
         return events[: max(1, min(limit, 5000))]
