@@ -1,0 +1,121 @@
+name: Prepare v0.5.0
+
+on:
+  push:
+    branches:
+      - "release-prep/v0.5.0"
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release-prep/v0.5.0
+          fetch-depth: 0
+
+      - name: Update release metadata and docs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          version = "0.5.0"
+          tag = f"v{version}"
+
+          pyproject = Path("pyproject.toml")
+          text = pyproject.read_text()
+          text = text.replace('version = "0.4.0"', f'version = "{version}"', 1)
+          pyproject.write_text(text)
+
+          init_file = Path("src/morningstar_modbus/__init__.py")
+          text = init_file.read_text()
+          text = text.replace('__version__ = "0.4.0"', f'__version__ = "{version}"', 1)
+          init_file.write_text(text)
+
+          readme = Path("README.md")
+          text = readme.read_text()
+          text = re.sub(
+              r"> \*\*Release status:\*\*.*?\n\n## Current capabilities",
+              "> **Release status:** the latest published release is **v0.5.0**. It adds the normalized multi-controller system/site API, quality-aware aggregate metrics and history, topology/event/SSE surfaces, retained-history provider extensibility, optional inbound SNMP trap events, expanded GenStar logger coverage, and the domain-oriented package reorganization. Historical flat Python import paths remain supported through compatibility aliases, and the runtime remains read-only.\n\n## Current capabilities",
+              text,
+              count=1,
+              flags=re.S,
+          )
+          marker = "- FastAPI JSON endpoints plus automatic OpenAPI documentation."
+          if "system/site aggregation with quality-aware" not in text:
+              text = text.replace(
+                  marker,
+                  "- Normalized multi-controller system/site aggregation with quality-aware metrics/history, topology, unified events, and SSE streaming.\n- Optional inbound SNMP trap event ingestion and a retained-history provider registry for verified non-poll history backends.\n" + marker,
+                  1,
+              )
+          text = re.sub(
+              r"## Package layout\n\n```text\n.*?```\n\nSee \[`docs/README\.md`\]\(docs/README\.md\) for the documentation index\.",
+              "## Package layout\n\nThe runtime is organized into domain packages such as `api/`, `capture/`, `controllers/`, `discovery/`, `history/`, `persistence/`, `polling/`, `protocol/`, `runtime/`, `systems/`, and `transports/`. Legacy flat import paths remain available through compatibility exports/aliases so the v0.5.0 reorganization does not intentionally break callers.\n\nSee [`docs/package-layout.md`](docs/package-layout.md) for the canonical tree and dependency direction, and [`docs/README.md`](docs/README.md) for the documentation index.",
+              text,
+              count=1,
+              flags=re.S,
+          )
+          readme.write_text(text)
+
+          docs_index = Path("docs/README.md")
+          text = docs_index.read_text()
+          text = re.sub(
+              r"These documents describe the current merged `main` line and the runtime behavior published in `v0\.4\.0`\. Feature branches may add development-only documents before the next published release\.",
+              "These documents describe the current merged `main` line and the runtime behavior published in `v0.5.0`. Feature branches may add development-only documents before the next published release.",
+              text,
+              count=1,
+          )
+          text = re.sub(
+              r"## Version note\n\n.*\Z",
+              "## Version note\n\nThe latest published GitHub release is `v0.5.0`. It includes the v0.4.0 controller-first identity/history, reconnect, polling-performance, retained-history, capture/replay, and register-semantics baseline plus the normalized multi-controller system/site API, quality-aware aggregate metrics/history, topology and unified events, SSE streaming, retained-history provider architecture, optional inbound SNMP trap ingestion, expanded GenStar logger coverage, and the domain-oriented package reorganization with backward-compatible legacy imports. The system/site API is now released behavior rather than development-only functionality.\n",
+              text,
+              count=1,
+              flags=re.S,
+          )
+          docs_index.write_text(text)
+
+          releases_dir = Path("docs/releases")
+          releases_dir.mkdir(parents=True, exist_ok=True)
+          (releases_dir / "README.md").write_text(
+              "# Release notes\n\n- [`v0.5.0`](v0.5.0.md) — system/site API, provider extensibility, GenStar logger expansion, and domain-package reorganization.\n- [`v0.4.0`](https://github.com/hasnocool/MorningstarModbusAPI/releases/tag/v0.4.0) — controller-first identity/history, reconnect, polling, retained history, capture/replay, and register semantics.\n"
+          )
+          (releases_dir / "v0.5.0.md").write_text(
+              "# MorningstarModbusAPI v0.5.0\n\n"
+              "v0.5.0 is a feature release built on the v0.4.0 controller-first telemetry baseline.\n\n"
+              "## Highlights\n\n"
+              "- Adds a persistent system/site layer above immutable `controller_uid` identities.\n"
+              "- Adds normalized multi-controller metrics and history with explicit `complete`, `partial`, and `empty` quality.\n"
+              "- Adds system energy, health, topology, event timeline, and SSE streaming surfaces.\n"
+              "- Adds a retained-history provider registry so verified controller logger backends remain separate from raw Modbus poll history.\n"
+              "- Adds optional inbound SNMP trap event ingestion without introducing SNMP writes or active control.\n"
+              "- Expands source-backed GenStar logger/fault/alarm/energy coverage.\n"
+              "- Reorganizes the Python runtime into domain-oriented packages for API, transports, protocol, controllers, history, persistence, polling, systems, runtime orchestration, capture, and SNMP.\n"
+              "- Preserves historical flat import paths through compatibility exports and strict module aliases.\n\n"
+              "## Compatibility and safety\n\n"
+              "The service remains read-only: Modbus write-register, write-coil, reset, equalize, EEPROM mutation, and generic raw-command surfaces are not introduced. Existing flat Python imports remain supported for this release, while new code should prefer the canonical package paths documented in `docs/package-layout.md`.\n\n"
+              "## Upgrade notes\n\n"
+              "No destructive database migration is required. Install the new version normally and keep existing configuration; new `[system]` and `[snmp]` settings are optional/default-safe. Applications can continue using controller/device APIs or adopt `/v1/systems` incrementally.\n"
+          )
+
+          workflow = Path(".github/workflows/release-prep-v0.5.0.yml")
+          if workflow.exists():
+              workflow.unlink()
+          PY
+
+      - name: Commit prepared release
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Prepare MorningstarModbusAPI v0.5.0"
+          git push origin HEAD:release-prep/v0.5.0
