@@ -129,6 +129,14 @@ class _FakeSystems:
             "points": points,
         }
 
+    async def bucketed_metric_history(
+        self,
+        system_uid: str,
+        metric: str,
+        **kwargs: object,
+    ) -> dict[str, object]:
+        return await self.history(system_uid, metric, **kwargs)
+
 
 @pytest.mark.asyncio
 async def test_forecast_service_builds_offline_energy_outlook_and_charge_probability() -> None:

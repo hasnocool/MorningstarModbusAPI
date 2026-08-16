@@ -191,6 +191,18 @@ def attach_system_routes(app: FastAPI, data: SystemDataRepository) -> None:
     ) -> dict[str, object]:
         start, end = _range(from_, to)
         try:
+            # Use bucketed aggregation for non-raw resolutions to avoid the
+            # source-observation guard; fall back to the per-observation path
+            # for raw resolution or state-set metrics.
+            if resolution != "raw":
+                return await data.bucketed_metric_history(
+                    system_uid,
+                    metric,
+                    start=start,
+                    end=end,
+                    resolution=resolution,
+                    max_buckets=max_points,
+                )
             return await data.history(
                 system_uid,
                 metric,
