@@ -1,6 +1,6 @@
 # MorningstarModbusAPI documentation index
 
-These documents describe the current merged `main` line and the runtime behavior published in `v0.4.0`. Feature branches may add development-only documents before the next published release.
+These documents describe the current merged `main` line and the runtime behavior published in `v0.5.0`. Feature branches may add development-only documents before the next published release.
 
 ## Recommended reading
 
@@ -149,4 +149,4 @@ Cross-product system semantics and inferred bridge candidates are also kept sepa
 
 ## Version note
 
-The latest published GitHub release is `v0.4.0`. The system/site API described by `system-api.md` is development work for a later release until its feature branch is merged and released. The v0.4.0 baseline includes hardware verification/capture/replay, reconnect/lifecycle improvements, richer time-series query/export, controller-retained daily-history backfill, polling-performance instrumentation, automatic watcher interval selection, a one-second minimum normal watcher persistence cadence, physical-controller inventory, persistent canonical identity, immutable controller UIDs, controller-scoped history, explicit reserved-register metadata, and corrected TS-MPPT hardware-revision decoding.
+The latest published GitHub release is `v0.5.0`. It includes the v0.4.0 controller-first identity/history, reconnect, polling-performance, retained-history, capture/replay, and register-semantics baseline plus the normalized multi-controller system/site API, quality-aware aggregate metrics/history, topology and unified events, SSE streaming, retained-history provider architecture, optional inbound SNMP trap ingestion, expanded GenStar logger coverage, and the domain-oriented package reorganization with backward-compatible legacy imports. The system/site API is now released behavior rather than development-only functionality.
