@@ -8,6 +8,7 @@ from typing import Protocol
 
 from morningstar_modbus.config import HistoryBackfillConfig
 from morningstar_modbus.controller_history_liveview import ControllerHistoryBackfiller as LiveViewBackfiller
+from morningstar_modbus.controller_history_storage import ControllerHistoryRepository
 from morningstar_modbus.controller_history_types import BackfillResult
 from morningstar_modbus.models import DiscoveredDevice
 
@@ -32,6 +33,10 @@ class LiveViewHistoryProvider:
     def __init__(self, database_path: str, config: HistoryBackfillConfig) -> None:
         self.backend = LiveViewBackfiller(database_path, config)
 
+    @property
+    def repository(self) -> ControllerHistoryRepository:
+        return self.backend.repository
+
     async def initialize(self) -> None:
         await self.backend.initialize()
 
@@ -46,7 +51,7 @@ class ControllerHistoryProviderRegistry:
     """Select one verified retained-history provider without guessing undocumented protocols.
 
     The registry is intentionally conservative: a backend must explicitly claim a
-    device before it is used.  This makes it possible to add GenStar hourly/daily/
+    device before it is used. This makes it possible to add GenStar hourly/daily/
     event-log readers or future Morningstar products without changing watcher
     scheduling or weakening the current source/provenance boundary.
     """
@@ -61,8 +66,12 @@ class ControllerHistoryProviderRegistry:
         self.providers: tuple[ControllerHistoryProvider, ...] = tuple(
             providers if providers is not None else (LiveViewHistoryProvider(database_path, config),)
         )
+        self.repository = ControllerHistoryRepository(database_path)
+        if len(self.providers) == 1 and isinstance(self.providers[0], LiveViewHistoryProvider):
+            self.repository = self.providers[0].repository
 
     async def initialize(self) -> None:
+        await self.repository.initialize()
         for provider in self.providers:
             await provider.initialize()
 
