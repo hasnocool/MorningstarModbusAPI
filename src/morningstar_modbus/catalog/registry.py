@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from morningstar_modbus.catalog.families.genstar_mppt import GENSTAR_MPPT
+from morningstar_modbus.catalog.families.genstar_mppt_system_metering import GENSTAR_MPPT
 from morningstar_modbus.catalog.families.prostar_mppt import PROSTAR_MPPT
 from morningstar_modbus.catalog.families.prostar_pwm import PROSTAR_PWM
 from morningstar_modbus.catalog.families.readyedge import READYEDGE

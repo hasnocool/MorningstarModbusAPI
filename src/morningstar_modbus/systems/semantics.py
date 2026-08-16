@@ -7,7 +7,15 @@ from dataclasses import dataclass
 from typing import Literal
 
 SystemAggregation = Literal["sum", "median", "max", "min", "latest", "state_set"]
-SystemMetricCategory = Literal["solar", "battery", "energy", "temperature", "state", "health"]
+SystemMetricCategory = Literal[
+    "solar",
+    "battery",
+    "load",
+    "energy",
+    "temperature",
+    "state",
+    "health",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,7 +67,40 @@ SYSTEM_METRICS: tuple[SystemMetricSpec, ...] = (
         "sum",
         "battery",
         ("battery_charge_current", "charge_current", "output_current"),
-        "Total charging current contributed toward the battery system.",
+        "Total controller-local charging current contributed toward the battery system.",
+    ),
+    SystemMetricSpec(
+        "system_charge_current_a",
+        "A",
+        "median",
+        "battery",
+        ("system_charge_current",),
+        (
+            "Morningstar-reported whole-system charging current. Multiple reporters are treated "
+            "as parallel observations of one system quantity and are never summed."
+        ),
+    ),
+    SystemMetricSpec(
+        "battery_net_current_a",
+        "A",
+        "median",
+        "battery",
+        ("system_battery_current",),
+        (
+            "Morningstar-reported whole-system battery current. This is distinct from charger "
+            "output current and is never synthesized from charger current."
+        ),
+    ),
+    SystemMetricSpec(
+        "system_load_current_a",
+        "A",
+        "median",
+        "load",
+        ("system_load_current",),
+        (
+            "Morningstar-reported whole-system load current. Multiple reporters are resolved as "
+            "observations of one system quantity rather than additive branch currents."
+        ),
     ),
     SystemMetricSpec(
         "battery_voltage_v",
@@ -73,6 +114,14 @@ SYSTEM_METRICS: tuple[SystemMetricSpec, ...] = (
             "battery_voltage_1m",
         ),
         "Representative battery-system voltage using the median of available bus observations.",
+    ),
+    SystemMetricSpec(
+        "load_voltage_v",
+        "V",
+        "median",
+        "load",
+        ("load_voltage",),
+        "Representative source-backed load-terminal voltage when available.",
     ),
     SystemMetricSpec(
         "array_voltage_v",
@@ -104,7 +153,7 @@ SYSTEM_METRICS: tuple[SystemMetricSpec, ...] = (
         "sum",
         "energy",
         ("daily_charge_wh", "charge_wh_daily", "daily_energy_wh"),
-        "Total charging energy accumulated during the current controller day in Wh.",
+        "Total controller-local charging energy accumulated during the current controller day in Wh.",
     ),
     SystemMetricSpec(
         "daily_charge_kwh",
@@ -139,6 +188,73 @@ SYSTEM_METRICS: tuple[SystemMetricSpec, ...] = (
             "internal_charge_kwh_total",
         ),
         "Combined lifetime controller-local charging energy.",
+    ),
+    SystemMetricSpec(
+        "system_charge_kwh_daily",
+        "kWh",
+        "median",
+        "energy",
+        ("system_charge_kwh_daily",),
+        (
+            "Morningstar whole-system charge-energy counter for the current day. Multiple "
+            "reporters are treated as observations of one counter and are not summed."
+        ),
+    ),
+    SystemMetricSpec(
+        "system_charge_ah_daily",
+        "Ah",
+        "median",
+        "energy",
+        ("system_charge_ah_daily",),
+        "Morningstar whole-system charge amp-hours for the current day.",
+    ),
+    SystemMetricSpec(
+        "system_battery_ah_daily",
+        "Ah",
+        "median",
+        "energy",
+        ("system_battery_ah_daily",),
+        "Morningstar whole-system signed battery net amp-hours for the current day.",
+    ),
+    SystemMetricSpec(
+        "system_load_ah_daily",
+        "Ah",
+        "median",
+        "energy",
+        ("system_load_ah_daily",),
+        "Morningstar whole-system load amp-hours for the current day.",
+    ),
+    SystemMetricSpec(
+        "external_source_charge_kwh_daily",
+        "kWh",
+        "median",
+        "energy",
+        ("aggregated_shunt_charge_kwh_daily",),
+        "Aggregated external-source shunt charge energy for the current day.",
+    ),
+    SystemMetricSpec(
+        "external_source_charge_ah_daily",
+        "Ah",
+        "median",
+        "energy",
+        ("aggregated_shunt_charge_ah_daily",),
+        "Aggregated external-source shunt charge amp-hours for the current day.",
+    ),
+    SystemMetricSpec(
+        "shunt_battery_net_ah_daily",
+        "Ah",
+        "median",
+        "energy",
+        ("aggregated_shunt_battery_ah_daily",),
+        "Aggregated shunt signed battery net amp-hours for the current day.",
+    ),
+    SystemMetricSpec(
+        "shunt_load_ah_daily",
+        "Ah",
+        "median",
+        "energy",
+        ("aggregated_shunt_load_ah_daily",),
+        "Aggregated shunt load amp-hours for the current day.",
     ),
     SystemMetricSpec(
         "charge_state",
