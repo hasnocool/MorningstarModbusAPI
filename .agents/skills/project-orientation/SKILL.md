@@ -1,80 +1,36 @@
 ---
 name: project-orientation
-description: Establish reliable branch truth, project architecture, subsystem ownership, tests, documentation, release state, and nearby GitHub work before modifying MorningstarModbusAPI.
+description: Establish branch truth, package ownership, current capabilities, and the correct subsystem before modifying MorningstarModbusAPI.
 ---
 
 # Project orientation
 
-Use this skill at the start of unfamiliar, broad, ambiguous, or cross-cutting work.
-
-## Goal
-
-Build a small evidence-backed map of the **current checkout**, then route the task to the owning project layer.
-Do not solve the task from remembered repository state.
+Use this skill before non-trivial work or whenever the subsystem is unfamiliar.
 
 ## Procedure
 
-1. Inspect repository state when available:
-   - current branch and HEAD;
-   - dirty/untracked files;
-   - recent commits;
-   - configured remotes if publishing matters.
-2. Read root `AGENTS.md`.
-3. Read `README.md`, `docs/README.md`, and `pyproject.toml`.
-4. Inspect only the source modules and tests likely to own the requested behavior.
-5. If a PR/issue/branch is mentioned, inspect its exact base/head/diff/status rather than assuming it matches the
-   checkout.
-6. Identify whether the requested functionality is:
-   - already implemented;
-   - partially implemented;
-   - present only on another/open branch;
-   - absent;
-   - documented but not implemented;
-   - implemented but under-documented.
-7. Summarize the owning packages, relevant tests, public surfaces, and invariants before making large changes.
+1. Inspect branch/HEAD/status/recent commits and any referenced PR base/head.
+2. Read `pyproject.toml`, `README.md`, `docs/README.md`, and `docs/package-layout.md`.
+3. Inspect source and tests in the owning domain package before trusting prose.
+4. Identify whether behavior belongs to `transports`, `protocol`, `discovery`, `controllers`, `catalog`,
+   `intelligence`, `runtime`, `persistence`, `history`, `systems`, `api`, `capture`, `snmp`, or `maintenance`.
+5. If work crosses controller/system layers, trace immutable `controller_uid` and provenance end to end.
+6. If the branch contains system/site work, inspect `systems/semantics.py`, `systems/data.py`, component/power
+   services, and `api/routers/systems.py` rather than assuming route/documentation shape.
+7. If the task involves ReadyEdge, GenStar, TriStar, retained history, or SNMP, inspect the current catalog and
+   source index before assuming capabilities.
+8. Select the smallest relevant canonical skills and add `testing-and-ci` for implementation.
 
-## Repository map to verify, not blindly assume
+## Current architecture checkpoints
 
-Typical ownership is:
+- The v0.5+ codebase uses domain packages; removed flat-module imports are not architectural truth.
+- Physical identity is `controller_uid`; device IDs/endpoints may change.
+- Systems aggregate controllers but do not own/replace physical identity.
+- Transport topology, component/electrical relationships, and power accounting are separate evidence layers.
+- Power/energy read models must preserve observed/derived/unknown state.
+- Branch-only functionality is not automatically `main` or released behavior.
 
-- protocol/transport -> `protocol.py`, `transport.py`;
-- discovery -> `discovery.py`;
-- product/register truth -> `catalog/`;
-- identity/firmware/confidence -> `intelligence/`;
-- capture/replay/verification -> `capture.py`, `replay.py`, `verification.py`;
-- reconnect/runtime lifecycle -> `lifecycle.py`, `watcher.py`;
-- persistence/history -> `storage.py`, `history.py`;
-- API -> `api.py`;
-- vendor source scanning -> `maintenance/`;
-- CLI orchestration -> `cli.py`.
+## Output
 
-Read the current directory if the task suggests this map changed.
-
-## Branch and release reasoning
-
-Keep three states separate:
-
-- checked-out branch behavior;
-- latest merged `main` behavior;
-- latest published tag/release behavior.
-
-An open/draft PR is evidence of proposed work only. If another PR overlaps the requested task, report the
-relationship and choose a branch strategy that does not accidentally overwrite it.
-
-## Questions this skill should answer
-
-Before implementation you should know:
-
-- What exact behavior is requested?
-- Which layer owns it?
-- What current tests constrain it?
-- Which public API/CLI/config/docs surfaces might change?
-- Does it touch read-only safety, evidence, persistence, migrations, concurrency, or privacy?
-- Is there an existing branch/PR doing the same work?
-- What validation will prove completion?
-
-## Handoff
-
-After orientation, load the domain skill that owns the work. For implementation, always add
-`.agents/skills/testing-and-ci/SKILL.md`. For PR integration, add
-`.agents/skills/pr-review-and-integration/SKILL.md`.
+Before editing, be able to name the owning package(s), public contract affected, evidence/source constraints,
+identity/provenance implications, and tests that should prove the change.

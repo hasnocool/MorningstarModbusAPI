@@ -1,95 +1,30 @@
 ---
 name: api-development
-description: Add or modify MorningstarModbusAPI FastAPI routes, validation, response shaping, query limits, streaming exports, and API compatibility without leaking product logic or write capabilities.
+description: Develop read-only FastAPI controller/system endpoints, SSE streaming, history/export responses, topology/components/power views, validation, and error behavior without leaking domain logic into routes.
 ---
 
 # API development
 
-Use for `api.py`, FastAPI models/routes, query validation, streaming responses, or documented `/v1` behavior.
+Primary ownership is `api/`, especially `api/routers/controllers.py` and `api/routers/systems.py`. Routes should
+validate/present domain services; they should not own product decoding, controller identity, or power accounting.
 
-## Establish API truth
+## Current route families
 
-Inspect current `api.py` and API tests before relying on README endpoint tables. Active branches can add endpoints
-before all summary documentation catches up.
+Inspect the branch router/tests before relying on exact paths. The service can expose controller inventory/latest/
+history/export, system/site inventory/latest/history/energy/health, topology/events/SSE, and branches containing
+the component model may expose components/relationships/component graph/power flow/energy ledger.
 
-Identify:
+## Rules
 
-- route path/method;
-- source of data (storage/catalog/runtime service);
-- query/path parameters and limits;
-- success shape;
-- empty/not-found behavior;
-- validation/error status codes;
-- streaming behavior where applicable;
-- backward-compatible callers/tests.
+- Keep `/v1` compatibility where possible and document intentional migrations.
+- Validate time ranges, resolution, limits, identifiers, and query parameters at the boundary.
+- Preserve IDs containing `/` where supported.
+- Keep product-specific register conditionals out of routes.
+- Keep system metric/component/power semantics in `systems/`.
+- SSE generators must be async, disconnect-aware, bounded, and heartbeat-safe.
+- Stream large exports instead of building unbounded payloads.
+- Use explicit HTTP status/error semantics and test them.
+- Never add write-capable controller/protocol operations.
 
-## Layer boundary
-
-FastAPI is presentation/orchestration. Do not copy product register maps, firmware rules, scaling, discovery
-fingerprints, or lifecycle transition logic into route handlers.
-
-Routes should call the owning catalog/intelligence/storage/history/service layer and shape a stable response.
-
-## Read-only boundary
-
-Do not expose controller mutation through:
-
-- write/register/coil endpoints;
-- arbitrary function-code passthrough;
-- "admin" raw Modbus commands;
-- hidden query parameters that trigger resets/configuration.
-
-This API is for discovery, evidence, telemetry, history, and diagnostics under the current project contract.
-
-## Device identifiers
-
-Some device IDs can contain `/` or transport-derived delimiters. Preserve the branch's path-converter/query design
-rather than assuming a simple path segment. Add regression tests for identifiers that previously caused routing
-bugs.
-
-## History endpoints
-
-When exposing telemetry history:
-
-- normalize/validate timestamps once;
-- keep half-open range semantics consistent with `history.py`;
-- validate resolution/register-count/point limits;
-- distinguish numeric vs state aggregation output;
-- return guidance for oversized normal JSON requests rather than consuming unbounded memory;
-- use streaming responses for large exports.
-
-## Runtime versus persisted state
-
-Be explicit about where data comes from. If detailed lifecycle exists only in watcher memory, do not fabricate it
-from a simpler persisted `devices.status`. If a task adds runtime-state APIs, define how the FastAPI app obtains a
-safe live reference and what happens before watcher startup/restart.
-
-## Compatibility
-
-Prefer additive routes/fields. If changing an existing response:
-
-- identify consumers/tests;
-- preserve old query defaults when sensible;
-- document breaking changes/migration if unavoidable;
-- keep OpenAPI types accurate.
-
-## Errors
-
-Use intentional HTTP status codes for invalid input, unknown resources, oversized queries, and malformed time
-ranges. Do not convert every internal error into HTTP 200 with an `error` string.
-
-Avoid leaking local filesystem paths, raw secrets, or unsanitized capture identifiers in errors.
-
-## Tests
-
-Use FastAPI/httpx test patterns already in the repo. Cover:
-
-- default success;
-- boundary/limit cases;
-- invalid input;
-- not-found/empty data;
-- backward compatibility;
-- streaming content type/rows when relevant;
-- device IDs with special path characters where relevant.
-
-Then follow `testing-and-ci` and update API docs.
+For new system endpoints, test both happy paths and missing/partial/unknown data so API presentation does not
+turn absence into fabricated numeric zeroes.
