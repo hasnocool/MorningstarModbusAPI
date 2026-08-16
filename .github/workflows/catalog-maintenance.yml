@@ -28,6 +28,21 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -e '.[dev]'
+      - name: Hash reviewed GenStar source
+        if: github.event_name == 'pull_request'
+        run: |
+          python - <<'PY'
+          import hashlib
+          import urllib.request
+
+          url = (
+              "https://www.morningstarcorp.com/wp-content/uploads/"
+              "technical-doc-genstar-mppt-modbus-specification-en.pdf"
+          )
+          with urllib.request.urlopen(url, timeout=30) as response:
+              payload = response.read()
+          print(f"GENSTAR_SOURCE_SHA256={hashlib.sha256(payload).hexdigest()}")
+          PY
       - name: Validate catalog and review provenance
         if: github.event_name == 'pull_request'
         run: >-
