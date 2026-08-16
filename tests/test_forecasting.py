@@ -99,7 +99,7 @@ class _FakeSystems:
         end = datetime.fromisoformat(str(kwargs["end"]))
         points: list[dict[str, object]] = []
         start_day = end.replace(hour=0, minute=0, second=0, microsecond=0)
-        for days_ago in range(1, 8):
+        for days_ago in range(1, 13):
             day = start_day - timedelta(days=days_ago)
             for minute in range(6 * 60, 18 * 60, 15):
                 points.append(
@@ -141,7 +141,7 @@ async def test_forecast_service_builds_offline_energy_outlook_and_charge_probabi
     payload = await service.system_forecast("sys_default", now=now)
     solar = payload["solar"]
     assert solar["status"] == "ready"
-    assert solar["training_days"] == 7
+    assert solar["training_days"] == 12
     assert solar["provenance"]["weather_used"] is False
     assert solar["provenance"]["internet_required"] is False
     assert solar["energy"]["remaining_p50_wh"] > 2000
@@ -166,7 +166,7 @@ async def test_forecast_accuracy_uses_only_completed_prior_days() -> None:
 
     accuracy = await service.forecast_accuracy("sys_default", now=now)
     assert accuracy["status"] == "ready"
-    assert accuracy["evaluated_days"] >= 2
+    assert accuracy["evaluated_days"] >= 5
     assert accuracy["median_absolute_error_percent"] == pytest.approx(0.0)
     assert accuracy["p10_p90_interval_coverage"] == pytest.approx(1.0)
 
