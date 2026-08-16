@@ -1,5 +1,5 @@
 # tests/test_controller_history_analytics.py
-from datetime import UTC, date, datetime
+from datetime import date
 
 import aiosqlite
 import httpx
@@ -10,7 +10,7 @@ from morningstar_modbus.controllers.scope import ControllerRegistry
 from morningstar_modbus.domain.models import DeviceIdentification, DiscoveredDevice, Endpoint
 from morningstar_modbus.history.analytics import ControllerHistoryAnalytics
 from morningstar_modbus.history.retained.storage import ControllerHistoryRepository
-from morningstar_modbus.history.retained.types import ControllerDailyRecord, LIVEVIEW_SOURCE
+from morningstar_modbus.history.retained.types import LIVEVIEW_SOURCE, ControllerDailyRecord
 from morningstar_modbus.persistence.store import TelemetryStore
 
 

@@ -282,7 +282,10 @@ class ControllerHistoryAnalytics:
             **scope.to_dict(),
             "from": start_day.isoformat(),
             "to": end_day.isoformat(),
-            "semantics": "gaps are days with zero persisted poll_samples; recovered means a complete controller daily record exists",
+            "semantics": (
+                "gaps are days with zero persisted poll_samples; recovered means a "
+                "complete controller daily record exists"
+            ),
             "gaps": grouped,
         }
 
@@ -371,7 +374,9 @@ class ControllerHistoryAnalytics:
                     },
                     "charge": {
                         "ah": retained_row.get("charge_ah") if retained_row else None,
-                        "absorption_minutes": retained_row.get("absorption_minutes") if retained_row else None,
+                        "absorption_minutes": (
+                            retained_row.get("absorption_minutes") if retained_row else None
+                        ),
                         "float_minutes": retained_row.get("float_minutes") if retained_row else None,
                         "equalize_minutes": retained_row.get("equalize_minutes") if retained_row else None,
                     },
@@ -394,7 +399,9 @@ class ControllerHistoryAnalytics:
                         "skipped_between_samples_seconds": round(skipped_seconds, 3),
                         "max_gap_seconds": max_gap_seconds,
                         "controller_daily_record": retained_row is not None,
-                        "controller_daily_complete": bool(retained_row["is_complete"]) if retained_row else False,
+                        "controller_daily_complete": (
+                            bool(retained_row["is_complete"]) if retained_row else False
+                        ),
                         "provenance": [
                             source
                             for source, available in (
