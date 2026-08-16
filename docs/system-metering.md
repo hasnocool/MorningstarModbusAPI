@@ -12,7 +12,7 @@ Morningstar GenStar MPPT MODBUS Specification V03 documents three instantaneous 
 - `SYSTEM_IBATT` at `0x0064` — system battery current;
 - `SYSTEM_ILOAD` at `0x0065` — system load current.
 
-The catalog already polled these values. The normalized system layer now exposes them separately as:
+The normalized system layer exposes them as:
 
 - `system_charge_current_a`;
 - `battery_net_current_a`;
@@ -34,20 +34,20 @@ When the required source-backed values are present, `/v1/systems/{system_uid}/po
 
 Derived values retain their formula and input metric names. No direction label is invented beyond the signed measurement supplied by Morningstar.
 
-Controller input/output residual and conversion efficiency remain a separate controller-side calculation. They must not be confused with the whole-system DC current balance.
+Controller input/output residual and conversion efficiency remain separate controller-side calculations. They must not be confused with the whole-system DC balance.
 
 ## Completed GenStar V03 counters
 
-The enhanced GenStar profile extends the existing V03 counter coverage through the documented system and internal battery/load counters:
+The GenStar profile includes documented system and internal battery/load counters:
 
 - `0x02DC-0x02E7` — system battery and load Ah daily/resettable/total;
 - `0x02F4-0x02FF` — controller-local battery and load Ah daily/resettable/total.
 
-Signed battery resettable/total counters use a signed 32-bit `*0.1` decoder because the vendor map specifies `int*0.1`, not unsigned arithmetic.
+Signed battery resettable/total counters use signed 32-bit `*0.1` decoding because the vendor map specifies signed integer semantics.
 
 ## Aggregated shunt counters
 
-V03 also documents the read-only Aggregated Shunt Counters block at `0x227C-0x2293`. The API models this block as optional because its useful values depend on compatible shunt/ReadyBlock configuration and firmware support.
+V03 also documents the read-only Aggregated Shunt Counters block at `0x227C-0x2293`. The API models this block as optional because useful values depend on compatible shunt/ReadyBlock configuration and firmware support.
 
 The block includes source-backed daily/resettable/total counters for:
 
@@ -56,7 +56,7 @@ The block includes source-backed daily/resettable/total counters for:
 - aggregated shunt battery net Ah;
 - aggregated shunt load Ah.
 
-Morningstar documents these as approximately hourly-updated counters useful for persistence across reboots. They therefore belong in the energy/counter model, not in a high-frequency synthetic telemetry loop.
+These retained counters belong in the energy/counter model, not in a synthetic high-frequency telemetry loop.
 
 ## Energy-ledger behavior
 
@@ -64,7 +64,7 @@ The energy ledger prefers a resolved Morningstar whole-system daily charge kWh c
 
 External-source shunt energy is **not** labeled as generator energy. The measured source may be a generator, another charger, a fuel cell, or another DC source.
 
-Native Ah counters remain Ah. In particular, the API does not multiply a daily Ah total by one instantaneous voltage and call the result daily Wh. Therefore these remain explicitly unknown unless separate energy evidence exists:
+Native Ah counters remain Ah. The API does not multiply a daily Ah total by one instantaneous voltage and call the result daily Wh. Therefore these remain explicitly unknown unless separate energy evidence exists:
 
 - battery discharge Wh;
 - load consumption Wh;
@@ -72,13 +72,37 @@ Native Ah counters remain Ah. In particular, the API does not multiply a daily A
 - conversion-loss Wh;
 - complete unaccounted-energy Wh.
 
-The corresponding source-backed Ah counters remain available under the ledger `counters` section for diagnostics and later time-integrated reconciliation.
+The source-backed Ah counters remain available for diagnostics and future time-resolved reconciliation.
+
+## Relationship to v0.6 controller energy analytics
+
+System metering and controller energy analytics answer different questions and must not be conflated.
+
+Controller analytics:
+
+```http
+GET /v1/controllers/{controller_uid}/energy/daily
+GET /v1/controllers/{controller_uid}/energy/summary
+```
+
+compare controller-retained daily `charge_wh` with a local integration of that controller's persisted `output_power` observations. They are useful for continuity and telemetry-quality checks.
+
+System metering:
+
+```http
+GET /v1/systems/{system_uid}/power-flow
+GET /v1/systems/{system_uid}/energy-ledger
+```
+
+uses normalized system semantics and source-backed whole-system counters where available. A system-wide GenStar counter is not replaced by the sum of controller-local estimates, and a controller-local integral is not promoted to a vendor-reported whole-system value.
+
+When both evidence classes exist, applications should compare them while retaining their scope and provenance.
 
 ## Measurement authority and future expansion
 
-This change establishes the first conflict-aware whole-system measurement resolution path. Future ReadyBMS, ReadyShunt role metadata, and ReadyEdge live-product telemetry should feed the same normalized semantics instead of bypassing them.
+Future ReadyBMS, ReadyShunt role metadata, and ReadyEdge live-product telemetry should feed the same normalized semantics instead of bypassing them.
 
-Important future rules remain:
+Important rules remain:
 
 - BMS/shunt authority must be based on documented product behavior, not arbitrary numeric priority scores;
 - transport topology is not electrical topology;
@@ -89,4 +113,6 @@ Important future rules remain:
 
 ## Provenance
 
-The added GenStar declarations are tied to the existing reviewed `genstar-mppt-modbus-v03` source and its catalog-maintenance SHA-256 proposal record. No vendor PDF is committed to the repository.
+The GenStar declarations are tied to the reviewed `genstar-mppt-modbus-v03` source and its catalog-maintenance SHA-256 proposal record. No vendor PDF is committed to the repository.
+
+See [`system-api.md`](system-api.md), [`component-graph.md`](component-graph.md), and [`history-reconciliation-and-energy.md`](history-reconciliation-and-energy.md).
