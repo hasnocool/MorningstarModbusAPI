@@ -1,7 +1,8 @@
 # GitHub Copilot instructions for MorningstarModbusAPI
 
 Read and follow root `AGENTS.md`; it is canonical. Use `.agents/README.md` as the skill index and load the relevant
-`.agents/skills/*/SKILL.md` before substantial work.
+`.agents/skills/*/SKILL.md` before substantial work. Use the canonical `system-topology-and-power` skill for
+system/site aggregation, topology, ReadyEdge component reconciliation, power-flow, or energy-ledger tasks.
 
 Core contract:
 
