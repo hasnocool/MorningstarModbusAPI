@@ -7,7 +7,6 @@ import importlib
 
 import pytest
 
-
 PACKAGE_EXPORTS = (
     ("morningstar_modbus.api", "morningstar_modbus.api.app"),
     ("morningstar_modbus.capture", "morningstar_modbus.capture.recorder"),
