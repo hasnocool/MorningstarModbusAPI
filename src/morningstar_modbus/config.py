@@ -1,8 +1,10 @@
+# src/morningstar_modbus/config.py
 """TOML configuration loader."""
 
 from __future__ import annotations
 
 import ipaddress
+import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -72,6 +74,20 @@ class HistoryBackfillConfig:
 
 
 @dataclass(slots=True)
+class SystemApiConfig:
+    default_uid: str = "sys_default"
+    default_name: str = "default"
+
+
+@dataclass(slots=True)
+class SnmpTrapConfig:
+    enabled: bool = False
+    host: str = "127.0.0.1"
+    port: int = 9162
+    max_packet_bytes: int = 65_507
+
+
+@dataclass(slots=True)
 class ApiConfig:
     host: str = "127.0.0.1"
     port: int = 8080
@@ -85,6 +101,8 @@ class AppConfig:
     serial: SerialConfig = field(default_factory=SerialConfig)
     tcp: TcpConfig = field(default_factory=TcpConfig)
     backfill: HistoryBackfillConfig = field(default_factory=HistoryBackfillConfig)
+    system: SystemApiConfig = field(default_factory=SystemApiConfig)
+    snmp: SnmpTrapConfig = field(default_factory=SnmpTrapConfig)
     api: ApiConfig = field(default_factory=ApiConfig)
 
 
@@ -101,6 +119,8 @@ def load_config(path: str | None) -> AppConfig:
         serial=SerialConfig(**payload.get("serial", {})),
         tcp=TcpConfig(**payload.get("tcp", {})),
         backfill=HistoryBackfillConfig(**payload.get("backfill", {})),
+        system=SystemApiConfig(**payload.get("system", {})),
+        snmp=SnmpTrapConfig(**payload.get("snmp", {})),
         api=ApiConfig(**payload.get("api", {})),
     )
     _validate(config)
@@ -153,6 +173,20 @@ def _validate(config: AppConfig) -> None:
         raise ValueError("backfill.timeout_seconds must be positive")
     if not 16_384 <= config.backfill.max_response_bytes <= 8_388_608:
         raise ValueError("backfill.max_response_bytes must be between 16 KiB and 8 MiB")
+
+    if not re.fullmatch(r"[A-Za-z0-9_.:-]+", config.system.default_uid):
+        raise ValueError("system.default_uid must contain only letters, digits, _, ., :, or -")
+    if not config.system.default_name.strip():
+        raise ValueError("system.default_name must not be empty")
+    if len(config.system.default_name) > 128:
+        raise ValueError("system.default_name must be at most 128 characters")
+
+    if not 1 <= config.snmp.port <= 65535:
+        raise ValueError("snmp.port must be within 1..65535")
+    if not config.snmp.host.strip():
+        raise ValueError("snmp.host must not be empty")
+    if not 512 <= config.snmp.max_packet_bytes <= 65_507:
+        raise ValueError("snmp.max_packet_bytes must be within 512..65507")
 
     benchmark = config.poll_benchmark
     if benchmark.minimum_interval_seconds <= 0:

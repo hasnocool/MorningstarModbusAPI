@@ -1,3 +1,4 @@
+# src/morningstar_modbus/api.py
 """FastAPI application exposing stored telemetry and Morningstar device intelligence."""
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from fastapi.responses import StreamingResponse
 
 from morningstar_modbus import __version__
 from morningstar_modbus.catalog import catalog_detail, catalog_summary
+from morningstar_modbus.config import SnmpTrapConfig, SystemApiConfig
 from morningstar_modbus.controller_api import attach_controller_routes
 from morningstar_modbus.controller_data import ControllerDataRepository
 from morningstar_modbus.controller_history import ControllerHistoryRepository
@@ -31,7 +33,10 @@ from morningstar_modbus.history import (
 )
 from morningstar_modbus.intelligence import effective_register_map
 from morningstar_modbus.polling_storage import PollingPerformanceStore
+from morningstar_modbus.snmp_traps import SnmpTrapListener, SnmpTrapSettings
 from morningstar_modbus.storage import TelemetryStore
+from morningstar_modbus.system_api import attach_system_routes
+from morningstar_modbus.system_data import SystemDataRepository
 
 LOGGER = logging.getLogger(__name__)
 
@@ -74,10 +79,31 @@ def _polling_mode(value: str) -> str | None:
     return normalized
 
 
-def create_app(store: TelemetryStore) -> FastAPI:
+def create_app(
+    store: TelemetryStore,
+    *,
+    system_config: SystemApiConfig | None = None,
+    snmp_config: SnmpTrapConfig | None = None,
+) -> FastAPI:
     controller_history = ControllerHistoryRepository(store.path)
     controller_data = ControllerDataRepository(store.path)
     performance_store = PollingPerformanceStore(store.path)
+    system_settings = system_config or SystemApiConfig()
+    system_data = SystemDataRepository(
+        store.path,
+        default_system_uid=system_settings.default_uid,
+        default_system_name=system_settings.default_name,
+    )
+    snmp_settings = snmp_config or SnmpTrapConfig()
+    snmp_listener = SnmpTrapListener(
+        store.path,
+        SnmpTrapSettings(
+            enabled=snmp_settings.enabled,
+            host=snmp_settings.host,
+            port=snmp_settings.port,
+            max_packet_bytes=snmp_settings.max_packet_bytes,
+        ),
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -85,12 +111,20 @@ def create_app(store: TelemetryStore) -> FastAPI:
         await controller_history.initialize()
         await controller_data.initialize()
         await performance_store.initialize()
-        yield
+        await system_data.initialize()
+        await snmp_listener.start()
+        try:
+            yield
+        finally:
+            await snmp_listener.close()
 
     app = FastAPI(
         title="Morningstar Modbus API",
         version=__version__,
-        description="Read-only API for persisted Morningstar Modbus telemetry and device intelligence.",
+        description=(
+            "Read-only API for persisted Morningstar Modbus telemetry, physical controllers, "
+            "and normalized multi-controller system/site intelligence."
+        ),
         lifespan=lifespan,
     )
 
@@ -347,6 +381,7 @@ def create_app(store: TelemetryStore) -> FastAPI:
         return record
 
     attach_controller_routes(app, controller_data)
+    attach_system_routes(app, system_data)
     return app
 
 

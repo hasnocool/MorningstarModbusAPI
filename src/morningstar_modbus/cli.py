@@ -1,3 +1,4 @@
+# src/morningstar_modbus/cli.py
 """Command-line interface."""
 
 from __future__ import annotations
@@ -456,7 +457,7 @@ async def _serve(config: AppConfig) -> int:
     store = TelemetryStore(config.database.path)
     server = uvicorn.Server(
         uvicorn.Config(
-            create_app(store),
+            create_app(store, system_config=config.system, snmp_config=config.snmp),
             host=config.api.host,
             port=config.api.port,
             log_level="info",
@@ -472,7 +473,7 @@ async def _run(config: AppConfig) -> int:
     watcher = Watcher(config, store)
     server = uvicorn.Server(
         uvicorn.Config(
-            create_app(store),
+            create_app(store, system_config=config.system, snmp_config=config.snmp),
             host=config.api.host,
             port=config.api.port,
             log_level="info",

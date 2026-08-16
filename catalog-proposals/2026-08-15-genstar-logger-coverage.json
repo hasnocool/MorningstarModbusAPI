@@ -1,0 +1,35 @@
+{
+  "source_id": "genstar-mppt-modbus-v03",
+  "source_sha256": "473f7445bad01c58887966b2f02d08798f9f82cd559b15aad29837135f2e8161",
+  "affected_profiles": [
+    "genstar_mppt"
+  ],
+  "changes": [
+    {
+      "address": "0x0212-0x0229",
+      "change": "expanded source-backed current and daily system fault, alarm, and charge-fault coverage"
+    },
+    {
+      "address": "0x026A-0x0279",
+      "change": "added documented hourly and daily logger summary fields while preserving the undocumented 0x026F-0x0270 gap"
+    },
+    {
+      "address": "0x02D0-0x02DB",
+      "change": "added documented system charge-energy and amp-hour counters"
+    },
+    {
+      "address": "0x02E8-0x02F3",
+      "change": "added documented controller-local charge-energy and amp-hour counters"
+    },
+    {
+      "address": "decoder",
+      "change": "added documented two-register IEEE-754 binary32 decoding in Modbus word order"
+    }
+  ],
+  "tests": [
+    "tests/test_genstar_logger_catalog.py::test_float32_decoder_matches_ieee_single_precision",
+    "tests/test_genstar_logger_catalog.py::test_genstar_catalog_exposes_documented_daily_and_hourly_logger_fields",
+    "tests/test_genstar_logger_catalog.py::test_genstar_catalog_exposes_local_and_system_charge_counters",
+    "tests/test_genstar_logger_catalog.py::test_genstar_capabilities_distinguish_snmp_polling_from_traps"
+  ]
+}
