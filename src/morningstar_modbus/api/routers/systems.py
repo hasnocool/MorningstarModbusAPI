@@ -11,7 +11,9 @@ from collections.abc import AsyncIterator
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
+from morningstar_modbus.api.routers.incidents import attach_incident_routes
 from morningstar_modbus.history import HistoryQueryError, normalize_time_range
+from morningstar_modbus.intelligence.incidents import SiteIntelligenceService
 from morningstar_modbus.systems.components import SystemComponentService
 from morningstar_modbus.systems.data import SystemDataRepository, SystemNotFoundError
 from morningstar_modbus.systems.power import SystemPowerService
@@ -54,10 +56,20 @@ def _sse(event: str, data: object, *, event_id: str | None = None) -> str:
     return "\n".join(parts) + "\n\n"
 
 
+def _sse_event_name(event: dict[str, object]) -> str:
+    return {
+        "INCIDENT_OPENED": "incident_opened",
+        "INCIDENT_UPDATED": "incident_updated",
+        "INCIDENT_RESOLVED": "incident_resolved",
+    }.get(str(event.get("event_type") or ""), "system_event")
+
+
 def attach_system_routes(app: FastAPI, data: SystemDataRepository) -> None:
     """Attach the read-only system/site API to an existing FastAPI application."""
     components = SystemComponentService(data)
     power = SystemPowerService(data, components)
+    path = getattr(data, "path", None)
+    intelligence = SiteIntelligenceService(str(path), data) if path else None
 
     @app.get("/v1/systems/metrics/catalog")
     async def system_metric_definitions() -> list[dict[str, object]]:
@@ -206,7 +218,21 @@ def attach_system_routes(app: FastAPI, data: SystemDataRepository) -> None:
             previous_snapshot = ""
             seen_events: set[str] = set()
             last_heartbeat = time.monotonic()
+            last_intelligence_scan = 0.0
+            intelligence_interval = (
+                max(5.0, intelligence.policy.scan_interval_seconds)
+                if intelligence is not None
+                else 60.0
+            )
             while not await request.is_disconnected():
+                now = time.monotonic()
+                if (
+                    intelligence is not None
+                    and now - last_intelligence_scan >= intelligence_interval
+                ):
+                    await intelligence.scan(system_uid)
+                    last_intelligence_scan = now
+
                 snapshot = await data.latest(system_uid)
                 fingerprint = json.dumps(
                     snapshot,
@@ -226,7 +252,7 @@ def attach_system_routes(app: FastAPI, data: SystemDataRepository) -> None:
                     seen_events.add(event_id)
                     if len(seen_events) > 2000:
                         seen_events = set(list(seen_events)[-1000:])
-                    yield _sse("system_event", event, event_id=event_id)
+                    yield _sse(_sse_event_name(event), event, event_id=event_id)
 
                 now = time.monotonic()
                 if now - last_heartbeat >= heartbeat:
@@ -243,3 +269,6 @@ def attach_system_routes(app: FastAPI, data: SystemDataRepository) -> None:
                 "X-Accel-Buffering": "no",
             },
         )
+
+    if intelligence is not None:
+        attach_incident_routes(app, intelligence)
