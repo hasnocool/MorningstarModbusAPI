@@ -288,7 +288,10 @@ class StorageV2Manager:
                        NULL, NULL, NULL, NULL, NULL,
                        MAX(CASE WHEN first_rank=1 THEN text_value END),
                        MAX(CASE WHEN last_rank=1 THEN text_value END),
-                       SUM(CASE WHEN previous_text IS NOT NULL AND previous_text != text_value THEN 1 ELSE 0 END)
+                       SUM(CASE
+                           WHEN previous_text IS NOT NULL AND previous_text != text_value THEN 1
+                           ELSE 0
+                       END)
                 FROM ranked
                 GROUP BY device_id, register_key, bucket_start_ms
                 """,
@@ -535,9 +538,11 @@ class StorageV2Manager:
                     counts[table] = int(value[0])
                 else:
                     counts[table] = 0
-            archive = await (await db.execute(
-                "SELECT COALESCE(SUM(bytes), 0) FROM storage_archives WHERE verified=1"
-            )).fetchone()
+            archive = await (
+                await db.execute(
+                    "SELECT COALESCE(SUM(bytes), 0) FROM storage_archives WHERE verified=1"
+                )
+            ).fetchone()
             archive_bytes = int(archive[0])
         page_bytes = page_size * page_count
         free_page_bytes = page_size * free_pages
