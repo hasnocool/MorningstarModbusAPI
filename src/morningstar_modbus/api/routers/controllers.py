@@ -21,6 +21,7 @@ from morningstar_modbus.history import (
     validate_order,
     validate_resolution,
 )
+from morningstar_modbus.history.analytics import ControllerHistoryAnalytics
 from morningstar_modbus.history.controller_data import ControllerDataRepository, ControllerNotFoundError
 
 
@@ -69,6 +70,15 @@ async def _controller_call(awaitable: Any) -> Any:
         return await awaitable
     except ControllerNotFoundError as exc:
         raise HTTPException(status_code=404, detail="controller not found") from exc
+
+
+async def _analytics_call(awaitable: Any) -> Any:
+    try:
+        return await awaitable
+    except ControllerNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="controller not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _build_history_response(
@@ -137,6 +147,8 @@ def _build_history_response(
 
 def attach_controller_routes(app: FastAPI, data: ControllerDataRepository) -> None:
     """Attach controller-first API routes while leaving legacy device routes intact."""
+
+    analytics = ControllerHistoryAnalytics(data.path)
 
     @app.get("/v1/controllers/{controller_uid}/latest")
     async def controller_latest(controller_uid: str) -> dict[str, object]:
@@ -278,6 +290,58 @@ def attach_controller_routes(app: FastAPI, data: ControllerDataRepository) -> No
     @app.get("/v1/controllers/{controller_uid}/history/controller-daily/summary")
     async def controller_daily_history_summary(controller_uid: str) -> dict[str, object]:
         return await _controller_call(data.controller_daily_summary(controller_uid))
+
+    @app.get("/v1/controllers/{controller_uid}/history/coverage")
+    async def controller_history_coverage(
+        controller_uid: str,
+        from_: str | None = Query(None, alias="from"),
+        to: str | None = Query(None),
+    ) -> dict[str, object]:
+        start, end = _daily_range(from_, to)
+        return await _analytics_call(analytics.coverage(controller_uid, start=start, end=end))
+
+    @app.get("/v1/controllers/{controller_uid}/history/gaps")
+    async def controller_history_gaps(
+        controller_uid: str,
+        from_: str | None = Query(None, alias="from"),
+        to: str | None = Query(None),
+    ) -> dict[str, object]:
+        start, end = _daily_range(from_, to)
+        return await _analytics_call(analytics.gaps(controller_uid, start=start, end=end))
+
+    @app.get("/v1/controllers/{controller_uid}/energy/daily")
+    async def controller_energy_daily(
+        controller_uid: str,
+        from_: str | None = Query(None, alias="from"),
+        to: str | None = Query(None),
+        max_gap_seconds: int = Query(300, ge=1, le=3600),
+    ) -> dict[str, object]:
+        start, end = _daily_range(from_, to)
+        return await _analytics_call(
+            analytics.energy_daily(
+                controller_uid,
+                start=start,
+                end=end,
+                max_gap_seconds=max_gap_seconds,
+            )
+        )
+
+    @app.get("/v1/controllers/{controller_uid}/energy/summary")
+    async def controller_energy_summary(
+        controller_uid: str,
+        from_: str | None = Query(None, alias="from"),
+        to: str | None = Query(None),
+        max_gap_seconds: int = Query(300, ge=1, le=3600),
+    ) -> dict[str, object]:
+        start, end = _daily_range(from_, to)
+        return await _analytics_call(
+            analytics.energy_summary(
+                controller_uid,
+                start=start,
+                end=end,
+                max_gap_seconds=max_gap_seconds,
+            )
+        )
 
     @app.get("/v1/controllers/{controller_uid}/history/export")
     async def controller_history_export(
