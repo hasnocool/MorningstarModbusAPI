@@ -1,6 +1,6 @@
 # MorningstarModbusAPI documentation index
 
-These documents describe the current merged `main` line and the runtime behavior published in `v0.5.0`. Feature branches may add development-only documents before the next published release.
+These documents describe the current merged `main` line and the runtime behavior published in `v0.6.0`. Historical release notes remain snapshots of the releases they describe.
 
 ## Recommended reading
 
@@ -8,31 +8,36 @@ If you are integrating the service rather than modifying it internally:
 
 1. [`../README.md`](../README.md) — installation, CLI, capability overview, preferred controller-first model, register semantics, and polling/persistence behavior.
 2. [`api.md`](api.md) — HTTP routes, identifiers, effective register maps, history query semantics, limits, exports, and examples.
-3. [`system-api.md`](system-api.md) — normalized multi-controller system/site metrics, quality, topology, event timeline, SSE, retained-history providers, and optional SNMP trap ingestion.
-4. [`controller-scoped-data.md`](controller-scoped-data.md) — why `controller_uid` is the stable application identifier and how legacy history is unified.
-5. [`telemetry-history.md`](telemetry-history.md) — persisted history, polling-vs-storage cadence, aggregation/statistics semantics, and retention guarantees.
-6. [`polling-performance.md`](polling-performance.md) — automatic watcher cadence, persisted polling metrics, benchmarking, and RTU-utilization limits.
-7. [`controller-history-backfill.md`](controller-history-backfill.md) — controller-retained daily history and its provenance limits.
+3. [`history-reconciliation-and-energy.md`](history-reconciliation-and-energy.md) — v0.6 controller history coverage, gap reconciliation, energy accounting, discrepancy metrics, and provenance semantics.
+4. [`system-api.md`](system-api.md) — normalized multi-controller system/site metrics, quality, topology, power flow, energy ledger, event timeline, SSE, retained-history providers, and optional SNMP trap ingestion.
+5. [`controller-scoped-data.md`](controller-scoped-data.md) — why `controller_uid` is the stable application identifier and how legacy history is unified.
+6. [`telemetry-history.md`](telemetry-history.md) — persisted history, polling-vs-storage cadence, aggregation/statistics semantics, retained-history evidence, and retention guarantees.
+7. [`controller-history-backfill.md`](controller-history-backfill.md) — controller-retained daily history, reconnect recovery, and provenance limits.
+8. [`polling-performance.md`](polling-performance.md) — automatic watcher cadence, persisted polling metrics, benchmarking, and RTU-utilization limits.
 
-If you are developing the project itself, start with [`architecture.md`](architecture.md) and the root [`AGENTS.md`](../AGENTS.md).
+If you are developing the project itself, start with [`architecture.md`](architecture.md), [`package-layout.md`](package-layout.md), and the root [`AGENTS.md`](../AGENTS.md).
 
 ## Documentation map
 
 | Document | Scope |
 | --- | --- |
-| [`api.md`](api.md) | Controller-first and legacy HTTP API, identifiers, effective register maps/reserved ranges, time ranges, resolutions, query limits, exports, errors, and examples |
-| [`system-api.md`](system-api.md) | Multi-controller system/site aggregation, normalized semantics, quality, topology, events, SSE, retained-history provider architecture, and SNMP trap ingestion |
-| [`architecture.md`](architecture.md) | Runtime layers, controller identity/UID flow, lifecycle, auto polling, persistence cadence, query paths, backfill, capture/replay, and read-only safety |
+| [`api.md`](api.md) | Controller-first, system, and legacy HTTP APIs; identifiers; history/energy surfaces; effective register maps/reserved ranges; query limits; exports; errors; examples |
+| [`history-reconciliation-and-energy.md`](history-reconciliation-and-energy.md) | Day-level evidence coverage, recovered/partial/missing gaps, controller-vs-local energy accounting, quality, discrepancy metrics, and provenance |
+| [`system-api.md`](system-api.md) | Multi-controller system/site aggregation, normalized semantics, quality, component graph, power flow, energy ledger, topology, events, SSE, retained-history provider architecture, and SNMP trap ingestion |
+| [`component-graph.md`](component-graph.md) | System component graph, typed relationships, power-flow views, and energy-ledger semantics |
+| [`architecture.md`](architecture.md) | Runtime layers, controller identity/UID flow, lifecycle, auto polling, persistence cadence, retained history, reconciliation analytics, system aggregation, capture/replay, and read-only safety |
+| [`package-layout.md`](package-layout.md) | Canonical domain package layout and dependency direction |
 | [`agent-system.md`](agent-system.md) | Shared coding-agent control tower, portable skills, harness adapters, specialist agents, and maintenance rules |
 | [`hardware-verification.md`](hardware-verification.md) | Physical capture, replay, verification reports, fixture publication, evidence levels, lifecycle/persistence distinctions, and sanitization |
-| [`telemetry-history.md`](telemetry-history.md) | Persisted telemetry retention, device/controller scopes, polling-vs-storage cadence, time ranges, aggregation, statistics, and streaming export |
+| [`telemetry-history.md`](telemetry-history.md) | Persisted telemetry retention, device/controller scopes, polling-vs-storage cadence, aggregation, statistics, streaming export, and retained-history evidence |
 | [`controller-history-backfill.md`](controller-history-backfill.md) | Provenance-aware recovery of controller-retained daily history after startup/reconnect without fabricating raw samples |
 | [`polling-performance.md`](polling-performance.md) | Full-profile polling instrumentation, automatic interval selection, persisted performance metrics, RTU utilization estimates, persistence cadence, and safe benchmarking |
 | [`canonical-device-identity.md`](canonical-device-identity.md) | Evidence-derived physical-controller identity, canonical telemetry IDs, connection history, endpoint reconciliation, and migration behavior |
-| [`controller-scoped-data.md`](controller-scoped-data.md) | Immutable controller UIDs, identity aliases, unified multi-device history, source provenance, and controller-first API routes |
+| [`controller-scoped-data.md`](controller-scoped-data.md) | Immutable controller UIDs, identity aliases, unified multi-device history, source provenance, controller-first API routes, and history analytics |
 | [`device-catalog.md`](device-catalog.md) | Declarative Morningstar product profiles, named and reserved register semantics, firmware gates, verification registry, coverage, and extension rules |
 | [`device-intelligence.md`](device-intelligence.md) | Runtime identity resolution, metadata, confidence, capabilities, validation, and effective firmware register/reserved maps |
 | [`catalog-maintenance.md`](catalog-maintenance.md) | Official-source download/validation, conservative PDF extraction, reserved/address-space classification, advisory diffs, provenance, and CI review gates |
+| [`releases/README.md`](releases/README.md) | Release-note index; current release is `v0.6.0` |
 
 ---
 
@@ -69,7 +74,7 @@ watcher + selected polling connection + lifecycle/backoff
         |
         +----> polling performance
         |
-        +----> retained-history provider registry
+        +----> retained-history provider registry / reconnect backfill
         |
         v
 SQLite/WAL persistence
@@ -77,6 +82,9 @@ SQLite/WAL persistence
         +----> raw endpoint/device APIs
         |
         +----> controller-scoped history/query/aggregation/export
+        |       |-- retained controller-daily evidence
+        |       |-- day-level coverage and gap reconciliation
+        |       `-- controller-vs-local energy accounting
         |
         +----> polling performance/history API
         |
@@ -84,7 +92,8 @@ SQLite/WAL persistence
         |
         +----> normalized system/site aggregation
         |       |-- quality-aware metrics/history
-        |       |-- topology/bridge candidates
+        |       |-- component graph / topology
+        |       |-- power flow / energy ledger
         |       |-- unified event timeline
         |       `-- SSE telemetry/events
         |
@@ -102,11 +111,11 @@ catalog declarations ---- official source index
 verification registry        advisory report
 ```
 
-Capture/replay is part of the runtime verification path, while vendor-document maintenance remains a separate sidecar. Verification evidence is deliberately kept outside vendor-derived family modules.
+Raw persisted poll/register history remains authoritative for observations actually made by the service. Live Modbus polling can run faster than storage: normal watcher poll-driven persistence is limited by `database.telemetry_write_interval_seconds` and cannot be configured below one second per physical controller. Intermediate polls still affect live lifecycle/intelligence and automatic interval selection but do not create extra history rows.
 
-Raw persisted poll/register history remains authoritative for historical queries. Live Modbus polling can run faster than storage: normal watcher poll-driven persistence is limited by `database.telemetry_write_interval_seconds` and cannot be configured below one second per physical controller. Intermediate polls still affect live lifecycle/intelligence and automatic interval selection but do not create extra history rows.
+Controller-retained records remain a separate provenance class and are never expanded into fabricated raw samples. v0.6 adds a read-time reconciliation/analytics layer that can say a day is recovered by controller evidence, partial, or still missing, while preserving the distinction between daily retained evidence and high-frequency live polling.
 
-Controller-retained records remain separate source classes with explicit source/retrieval provenance and are never expanded into fabricated raw samples. The provider registry lets future verified Morningstar logger backends reuse watcher scheduling without inventing undocumented retrieval methods.
+Energy accounting likewise keeps independent sources separate. Controller-reported daily Wh is never silently replaced by a locally integrated power estimate; when both exist, the API can report their discrepancy and the quality/provenance of each source.
 
 Persistent identity prevents future IP/USB locator changes from creating another application-facing controller. Immutable controller UIDs remain stable even when identity evidence is promoted, and controller-scoped reads combine all historical member device IDs while preserving `source_device_id` on raw observations.
 
@@ -134,19 +143,22 @@ The effective register-map API publishes named registers and firmware-applicable
 
 Do not treat these as interchangeable. The controller-first API exists specifically so applications do not need to manually merge legacy device histories, while the system API provides an additional normalized multi-controller view.
 
-## Evidence model
+## Evidence and quality terminology
 
-| Tier | Meaning |
+| Term | Meaning |
 | --- | --- |
 | **vendor-documented** | Morningstar source material specifies the register/behavior |
 | **software-tested** | Unit/replay tests exercise the implementation |
 | **fixture-verified** | A deterministic replay fixture decodes correctly |
 | **physical-device-verified** | A reviewed capture from known hardware confirms behavior |
+| `live_poll` | Persisted local Modbus observation provenance |
+| `controller_internal_logger` | Controller-retained daily evidence provenance |
+| `recovered` gap | No persisted live samples for a day, but a complete retained daily record exists |
+| `partial` gap | No persisted live samples and only incomplete retained daily evidence exists |
+| `missing` gap | Neither persisted live samples nor retained evidence exists |
 
-A profile must not be promoted across tiers without matching evidence. Catalog verification evidence is separate from controller identity/reconciliation confidence and runtime product-intelligence confidence.
-
-Cross-product system semantics and inferred bridge candidates are also kept separate from vendor-derived catalog facts. An inferred shared TCP/multi-unit topology is useful evidence but is not promoted to a claimed physical bridge without stronger verification.
+Catalog verification evidence is separate from controller identity/reconciliation confidence and runtime product-intelligence confidence. Cross-product system semantics and inferred bridge candidates are also kept separate from vendor-derived catalog facts.
 
 ## Version note
 
-The latest published GitHub release is `v0.5.0`. It includes the v0.4.0 controller-first identity/history, reconnect, polling-performance, retained-history, capture/replay, and register-semantics baseline plus the normalized multi-controller system/site API, quality-aware aggregate metrics/history, topology and unified events, SSE streaming, retained-history provider architecture, optional inbound SNMP trap ingestion, expanded GenStar logger coverage, and the domain-oriented package reorganization. The system/site API is now released behavior rather than development-only functionality.
+The latest published GitHub release is `v0.6.0`. It includes the v0.5.0 system/site and domain-package baseline plus controller history coverage, gap reconciliation, controller-vs-local daily energy accounting, system component graph/power-flow/energy-ledger improvements, and authoritative GenStar system metering/energy-balance work merged in the v0.6 release window. The service remains read-only and does not fabricate observations that were never collected.
