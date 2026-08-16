@@ -123,7 +123,7 @@ def test_system_specialist_and_skill_preserve_unknown_measurements() -> None:
         ROOT / ".github" / "instructions" / "systems.instructions.md",
     )
     for path in paths:
-        text = path.read_text(encoding="utf-8").casefold()
+        text = " ".join(path.read_text(encoding="utf-8").casefold().split())
         assert "controller_uid" in text
         assert "readyedge" in text
         assert "unknown" in text

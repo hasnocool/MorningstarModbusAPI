@@ -5,7 +5,8 @@
 
 `AGENTS.md` is the canonical project control tower. Do not maintain an independent copy of project facts here.
 For substantial work, invoke or consult the `morningstar-project` skill; it dispatches to canonical
-`.agents/skills/*/SKILL.md` procedures.
+`.agents/skills/*/SKILL.md` procedures. Use the canonical `system-topology-and-power` skill for system/site,
+ReadyEdge component, topology, power-flow, or energy-ledger work.
 
 Available specialist agents under `.claude/agents/` cover:
 
