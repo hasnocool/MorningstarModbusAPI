@@ -19,13 +19,15 @@ src/morningstar_modbus/
 ├── cli/                     # operator command-line entry point
 │   └── main.py
 ├── config/                  # configuration models/loading
-│   └── core.py
+│   └── settings.py
 ├── controllers/             # physical identity, inventory, scope, lifecycle
 │   ├── inventory.py
 │   ├── scope.py
 │   └── lifecycle.py
 ├── discovery/               # serial/TCP endpoint discovery
 │   └── service.py
+├── domain/                  # shared immutable models
+│   └── models.py
 ├── history/                 # raw/controller-scoped query logic
 │   ├── query.py
 │   ├── controller_data.py
@@ -38,13 +40,14 @@ src/morningstar_modbus/
 ├── intelligence/            # runtime product identity/capability confidence
 ├── maintenance/             # optional vendor-source maintenance tooling
 ├── persistence/             # SQLite/WAL authoritative persistence
-│   ├── core.py
+│   ├── store.py
 │   └── events.py
 ├── polling/                 # cadence, benchmarking, performance persistence
-│   ├── core.py
+│   ├── service.py
 │   └── storage.py
 ├── protocol/                # read-only Modbus framing/parsing
-│   └── core.py
+│   ├── codec.py
+│   └── errors.py
 ├── runtime/                 # long-running orchestration
 │   └── watcher.py
 ├── snmp/                    # optional inbound trap event ingestion
@@ -53,7 +56,7 @@ src/morningstar_modbus/
 │   ├── data.py
 │   └── semantics.py
 └── transports/              # RTU/TCP I/O and transport observers
-    └── core.py
+    └── modbus.py
 ```
 
 The existing `catalog/` and `intelligence/` packages remain the correct ownership boundaries and are not duplicated by this reorganization.
@@ -77,7 +80,7 @@ protocol -> transports -> discovery -> intelligence/controllers -> polling
 
 ## Canonical imports only
 
-The project is pre-adoption, so the v0.6 development line intentionally removes the historical flat-module compatibility layer rather than carrying permanent aliases. New and existing repository code must import from the owning domain package. CI regression coverage keeps the package root thin and prevents removed flat modules from returning.
+The project is pre-adoption, so the v0.5.0 line intentionally removes the historical flat-module compatibility layer rather than carrying permanent aliases. New and existing repository code must import from the owning domain package. CI regression coverage keeps the package root thin and prevents removed flat modules from returning.
 
 Examples:
 
