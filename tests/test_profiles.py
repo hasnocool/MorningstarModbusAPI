@@ -54,7 +54,10 @@ async def test_tristar_profile_decodes_named_metrics() -> None:
     assert by_name["charge_state"].value == "MPPT"
     assert by_name["led_state"].value == "GREEN"
     assert by_name["battery_voltage"].unit == "V"
+    assert by_name["input_power_reported"].unit == "W"
     assert by_name["input_power"].unit == "W"
+    assert by_name["input_power"].value == pytest.approx(by_name["input_power_reported"].value)
+    assert by_name["input_power_source"].value == "controller_reported"
     assert by_name["operating_hours"].value == 123
     assert by_name["charge_ah_resettable"].value == 2.5
     assert by_name["daily_charge_wh"].value == 3970

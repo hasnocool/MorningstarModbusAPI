@@ -294,11 +294,14 @@ TRISTAR_MPPT = DeviceProfileSpec(
             description="Instantaneous charging power delivered from the controller toward the battery.",
         ),
         RegisterSpec(
-            "input_power",
+            "input_power_reported",
             0x003B,
             decoder="tristar_power",
             unit="W",
-            description="Estimated instantaneous power entering from the solar array.",
+            description=(
+                "Controller-reported solar-array input-power estimate. Morningstar notes that array "
+                "input current is not measured by precision shunts, so this value may have significant error."
+            ),
         ),
         RegisterSpec(
             "sweep_max_power",

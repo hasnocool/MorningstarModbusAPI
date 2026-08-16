@@ -7,6 +7,7 @@ import asyncio
 import logging
 
 from morningstar_modbus.catalog.compatibility import effective_items
+from morningstar_modbus.catalog.derived import derive_register_values
 from morningstar_modbus.catalog.scaling import decode_value
 from morningstar_modbus.catalog.types import DeviceProfileSpec, RegisterBlock, RegisterSpec
 from morningstar_modbus.models import RegisterValue
@@ -135,7 +136,9 @@ class CatalogProfile:
                 )
             )
 
-        values.extend(self._decode_named(words_by_key, firmware=firmware))
+        named_values = self._decode_named(words_by_key, firmware=firmware)
+        values.extend(named_values)
+        values.extend(derive_register_values(self.spec.name, named_values))
         return tuple(values)
 
     def _decode_named(
