@@ -1,6 +1,6 @@
 # MorningstarModbusAPI documentation index
 
-These documents describe the current merged `main` development line. The latest published release is still `v0.3.0`, so some capabilities documented here are newer than the latest tag.
+These documents describe the current merged `main` line and the runtime behavior published in `v0.4.0`. The latest published GitHub release is `v0.4.0`; documentation-only commits may be newer than that tag without changing the released runtime behavior.
 
 ## Recommended reading
 
@@ -134,4 +134,4 @@ A profile must not be promoted across tiers without matching evidence. Catalog v
 
 ## Version note
 
-The latest published GitHub release is `v0.3.0`. The current merged development line includes hardware verification/capture/replay, reconnect/lifecycle improvements, richer time-series query/export, controller-retained daily-history backfill, polling-performance instrumentation, automatic watcher interval selection, a one-second minimum normal watcher persistence cadence, physical-controller inventory, persistent canonical identity, immutable controller UIDs, controller-scoped history, explicit reserved-register metadata, and corrected TS-MPPT hardware-revision decoding added after that release.
+The latest published GitHub release is `v0.4.0`. That release includes hardware verification/capture/replay, reconnect/lifecycle improvements, richer time-series query/export, controller-retained daily-history backfill, polling-performance instrumentation, automatic watcher interval selection, a one-second minimum normal watcher persistence cadence, physical-controller inventory, persistent canonical identity, immutable controller UIDs, controller-scoped history, explicit reserved-register metadata, and corrected TS-MPPT hardware-revision decoding. The current documentation tracks that released runtime baseline unless a section explicitly identifies newer development-only behavior.

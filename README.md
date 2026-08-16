@@ -6,7 +6,7 @@ It discovers Morningstar hardware, identifies it conservatively, reads and decod
 
 The project does **not** expose Modbus write operations. Vendor specifications may document writable registers and coils, but the runtime remains a read-only boundary.
 
-> **Development status:** the latest published release is **v0.3.0**. Current `main` contains substantial merged work after that release, including lifecycle/reconnect improvements, richer history queries/exports, controller-retained daily-history backfill, polling benchmarking and automatic interval selection, a one-second minimum watcher persistence cadence, physical-controller identity, immutable controller UIDs, controller-scoped history, and explicit manufacturer-reserved register metadata.
+> **Release status:** the latest published release is **v0.4.0**. It includes lifecycle/reconnect improvements, richer history queries/exports, controller-retained daily-history backfill, polling benchmarking and automatic interval selection, a one-second minimum watcher persistence cadence, physical-controller identity, immutable controller UIDs, controller-scoped history, and explicit manufacturer-reserved register metadata. Current documentation tracks that released runtime behavior unless a section explicitly says otherwise.
 
 ## Current capabilities
 
