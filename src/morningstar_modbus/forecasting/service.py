@@ -167,13 +167,13 @@ class ForecastService:
     ) -> dict[str, object]:
         current = (now or _utcnow()).astimezone(UTC)
         day_start = current.replace(hour=0, minute=0, second=0, microsecond=0)
-        history = await self.systems.history(
+        history = await self.systems.bucketed_metric_history(
             system_uid,
             "solar_input_power_w",
             start=(day_start - timedelta(days=self.policy.history_days)).isoformat(),
             end=current.isoformat(),
             resolution="15m",
-            max_points=self.policy.max_history_points,
+            max_buckets=self.policy.max_history_points,
         )
         by_day = self._solar_history(history)
         today_key = current.date().isoformat()
@@ -330,13 +330,13 @@ class ForecastService:
         current = (now or _utcnow()).astimezone(UTC)
         day_start = current.replace(hour=0, minute=0, second=0, microsecond=0)
         history_window = self.policy.history_days + self.policy.backtest_days + 2
-        history = await self.systems.history(
+        history = await self.systems.bucketed_metric_history(
             system_uid,
             "solar_input_power_w",
             start=(day_start - timedelta(days=history_window)).isoformat(),
             end=day_start.isoformat(),
             resolution="15m",
-            max_points=self.policy.max_history_points,
+            max_buckets=self.policy.max_history_points,
         )
         by_day = self._solar_history(history)
         daily_energy = {

@@ -449,6 +449,15 @@ class SystemDataRepository:
             and normalized_resolution not in _RESOLUTION_SECONDS
         ):
             raise ValueError("resolution must be raw, 1m, 5m, 15m, 1h, or 1d")
+        if normalized_resolution != "raw" and spec.aggregation != "state_set":
+            return await self.bucketed_metric_history(
+                identifier,
+                metric_name,
+                start=start,
+                end=end,
+                resolution=normalized_resolution,
+                max_buckets=max_points,
+            )
         system_uid, device_to_controller, controllers = await self._scope_map(identifier)
         if not device_to_controller:
             return {
