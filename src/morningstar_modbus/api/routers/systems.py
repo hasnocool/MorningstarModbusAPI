@@ -29,6 +29,21 @@ def _range(start: str | None, end: str | None) -> tuple[str | None, str | None]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+async def _with_live_controller_count(
+    data: SystemDataRepository,
+    record: dict[str, object],
+) -> dict[str, object]:
+    """Reconcile persisted membership counts with the current physical-controller inventory."""
+
+    item = dict(record)
+    system_uid = str(item.get("system_uid") or item.get("name") or "")
+    if not system_uid:
+        item["controller_count"] = 0
+        return item
+    item["controller_count"] = len(await data.controllers(system_uid))
+    return item
+
+
 def _sse(event: str, data: object, *, event_id: str | None = None) -> str:
     payload = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
     parts = []
@@ -50,12 +65,18 @@ def attach_system_routes(app: FastAPI, data: SystemDataRepository) -> None:
 
     @app.get("/v1/systems")
     async def systems() -> list[dict[str, object]]:
-        return await data.list_systems()
+        records = await data.list_systems()
+        return list(
+            await asyncio.gather(
+                *(_with_live_controller_count(data, record) for record in records)
+            )
+        )
 
     @app.get("/v1/systems/{system_uid}")
     async def system(system_uid: str) -> dict[str, object]:
         try:
-            return await data.system(system_uid)
+            record = await data.system(system_uid)
+            return await _with_live_controller_count(data, record)
         except SystemNotFoundError as exc:
             raise _not_found(exc) from exc
 
