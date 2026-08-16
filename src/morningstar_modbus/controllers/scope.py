@@ -258,12 +258,39 @@ class ControllerRegistry:
     async def resolve(self, identifier: str) -> ControllerScope | None:
         return await self.scopes.resolve(identifier)
 
+    async def _legacy_placeholder_ids(self) -> set[str]:
+        """Return inactive endpoint-only identities created solely by legacy bootstrap.
+
+        These rows are retained so old telemetry, aliases, and connection evidence
+        remain resolvable. They are not reliable proof of a distinct physical
+        controller once the modern registry is active, so they should not appear
+        in the default physical-controller inventory unless they are rediscovered.
+        """
+        async with aiosqlite.connect(self.scopes.path) as db:
+            rows = await (
+                await db.execute(
+                    """
+                    SELECT ci.controller_id
+                    FROM controller_identities ci
+                    JOIN controller_connections cc ON cc.controller_id=ci.controller_id
+                    WHERE ci.identity_source='endpoint'
+                    GROUP BY ci.controller_id
+                    HAVING MAX(cc.active)=0
+                       AND SUM(CASE WHEN cc.match_strategy!='legacy' THEN 1 ELSE 0 END)=0
+                    """
+                )
+            ).fetchall()
+        return {str(row[0]) for row in rows}
+
     async def list_controllers(self) -> list[dict[str, object]]:
         await self.initialize()
         records = await self.inventory.list_controllers()
+        legacy_placeholders = await self._legacy_placeholder_ids()
         output: list[dict[str, object]] = []
         for record in records:
             controller_id = str(record["controller_id"])
+            if controller_id in legacy_placeholders:
+                continue
             scope = await self.scopes.resolve(controller_id)
             if scope is None:
                 continue
