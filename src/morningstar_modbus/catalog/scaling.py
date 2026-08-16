@@ -22,6 +22,15 @@ def float16(value: int) -> float:
     return float(struct.unpack(">e", struct.pack(">H", value & 0xFFFF))[0])
 
 
+def float32(words: tuple[int, ...]) -> float:
+    """Decode a two-register IEEE-754 binary32 value in Modbus word order."""
+
+    if len(words) != 2:
+        raise ValueError("float32 decoder requires two words")
+    payload = struct.pack(">HH", words[0] & 0xFFFF, words[1] & 0xFFFF)
+    return float(struct.unpack(">f", payload)[0])
+
+
 def bcd_integer(value: int) -> int:
     """Decode a packed-BCD register into an integer, ignoring leading zeroes."""
 
@@ -68,7 +77,11 @@ def _context_word(context: Mapping[int, int], address: int, default: int = 0) ->
     return int(context.get(address, default))
 
 
-def decode_value(decoder: str, words: tuple[int, ...], context: Mapping[int, int]) -> float | int | str:
+def decode_value(
+    decoder: str,
+    words: tuple[int, ...],
+    context: Mapping[int, int],
+) -> float | int | str:
     """Decode one catalog field using a compact declarative decoder name."""
 
     if not words:
@@ -81,6 +94,8 @@ def decode_value(decoder: str, words: tuple[int, ...], context: Mapping[int, int
         return signed_16(raw)
     if decoder == "f16":
         return float16(raw)
+    if decoder == "f32":
+        return float32(words)
     if decoder == "bcd":
         return bcd_integer(raw)
     if decoder == "byte_pair_version":
@@ -114,14 +129,26 @@ def decode_value(decoder: str, words: tuple[int, ...], context: Mapping[int, int
         denominator = float(decoder.split(":", 1)[1])
         return (raw & 0xFFFF) * 100.0 / denominator
     if decoder == "tristar_voltage":
-        scale = fixed_point_scale(_context_word(context, 0x0000), _context_word(context, 0x0001))
+        scale = fixed_point_scale(
+            _context_word(context, 0x0000),
+            _context_word(context, 0x0001),
+        )
         return signed_16(raw) * scale / 32768.0
     if decoder == "tristar_current":
-        scale = fixed_point_scale(_context_word(context, 0x0002), _context_word(context, 0x0003))
+        scale = fixed_point_scale(
+            _context_word(context, 0x0002),
+            _context_word(context, 0x0003),
+        )
         return signed_16(raw) * scale / 32768.0
     if decoder == "tristar_power":
-        voltage = fixed_point_scale(_context_word(context, 0x0000), _context_word(context, 0x0001))
-        current = fixed_point_scale(_context_word(context, 0x0002), _context_word(context, 0x0003))
+        voltage = fixed_point_scale(
+            _context_word(context, 0x0000),
+            _context_word(context, 0x0001),
+        )
+        current = fixed_point_scale(
+            _context_word(context, 0x0002),
+            _context_word(context, 0x0003),
+        )
         return (raw & 0xFFFF) * voltage * current / 131072.0
     if decoder == "tristar_rts_temp":
         return "DISCONNECTED" if (raw & 0xFFFF) == 0x0080 else signed_16(raw)
@@ -131,10 +158,16 @@ def decode_value(decoder: str, words: tuple[int, ...], context: Mapping[int, int
             return float16(raw)
         kind = decoder.removeprefix("ts600_")
         if kind == "voltage":
-            scale = fixed_point_scale(_context_word(context, 0x0000), _context_word(context, 0x0001))
+            scale = fixed_point_scale(
+                _context_word(context, 0x0000),
+                _context_word(context, 0x0001),
+            )
             return signed_16(raw) * scale / 32768.0
         if kind == "current":
-            scale = fixed_point_scale(_context_word(context, 0x0002), _context_word(context, 0x0003))
+            scale = fixed_point_scale(
+                _context_word(context, 0x0002),
+                _context_word(context, 0x0003),
+            )
             return signed_16(raw) * scale / 32768.0
         return raw
     if decoder == "suresine_classic_current":
