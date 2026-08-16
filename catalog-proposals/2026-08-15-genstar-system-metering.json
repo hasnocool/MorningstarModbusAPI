@@ -1,0 +1,37 @@
+{
+  "source_id": "genstar-mppt-modbus-v03",
+  "source_sha256": "473f7445bad01c58887966b2f02d08798f9f82cd559b15aad29837135f2e8161",
+  "affected_profiles": [
+    "genstar_mppt"
+  ],
+  "changes": [
+    {
+      "address": "0x02DC-0x02E7",
+      "change": "completed documented GenStar system battery and load Ah daily/resettable/total counter coverage"
+    },
+    {
+      "address": "0x02F4-0x02FF",
+      "change": "completed documented controller-local battery and load Ah daily/resettable/total counter coverage"
+    },
+    {
+      "address": "0x227C-0x2293",
+      "change": "added documented optional aggregated-shunt charge Ah/kWh, battery net Ah, and load Ah counters"
+    },
+    {
+      "address": "decoder",
+      "change": "added signed two-register integer and signed factor decoding required by documented battery net counters"
+    },
+    {
+      "address": "system semantics",
+      "change": "promoted documented GenStar system charge, battery, and load currents into non-additive normalized whole-system measurements and energy-ledger counters"
+    }
+  ],
+  "tests": [
+    "tests/test_genstar_logger_catalog.py::test_signed_32_factor_decoder_preserves_negative_battery_counters",
+    "tests/test_genstar_logger_catalog.py::test_genstar_catalog_completes_system_and_internal_battery_load_counters",
+    "tests/test_genstar_logger_catalog.py::test_genstar_catalog_exposes_aggregated_shunt_counters_as_optional_block",
+    "tests/test_system_metering.py::test_genstar_system_currents_complete_battery_and_load_power_flow",
+    "tests/test_system_metering.py::test_energy_ledger_uses_system_and_shunt_counters_without_faking_ah_as_wh",
+    "tests/test_system_metering.py::test_conflicting_whole_system_current_reporters_remain_unknown"
+  ]
+}
