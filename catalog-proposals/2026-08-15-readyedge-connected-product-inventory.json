@@ -1,0 +1,26 @@
+{
+  "source_id": "readyedge-modbus-v01",
+  "source_sha256": "d5c210a0206647c831c83f1a70b16a867ae5c02aecc3060104befab32f889d55",
+  "affected_profiles": [
+    "readyedge"
+  ],
+  "changes": [
+    {
+      "address": "0x1F53-0x2052",
+      "change": "added all 16 documented ReadyEdge Connected Product descriptor slots with source-backed type, serial-number, and packed physical-bus/Modbus-address fields"
+    },
+    {
+      "address": "0x1F59-0x2052",
+      "change": "classified each Connected Product slot's documented expansion words as manufacturer-reserved rather than assigning speculative semantics"
+    },
+    {
+      "address": "capabilities",
+      "change": "added connected_product_inventory capability metadata for ReadyEdge"
+    }
+  ],
+  "tests": [
+    "tests/test_readyedge_component_catalog.py::test_readyedge_catalog_exposes_all_connected_product_descriptors",
+    "tests/test_readyedge_component_catalog.py::test_readyedge_connected_product_expansion_words_remain_reserved",
+    "tests/test_component_graph.py::test_component_graph_reconciles_readyedge_product_to_existing_controller"
+  ]
+}

@@ -38,8 +38,12 @@ SYSTEM_METRICS: tuple[SystemMetricSpec, ...] = (
         "W",
         "sum",
         "solar",
-        ("input_power_reported", "array_power", "pv_power", "solar_power", "input_power"),
-        "Total instantaneous solar/PV input power contributed by participating controllers.",
+        ("input_power", "array_power", "pv_power", "solar_power", "input_power_reported"),
+        (
+            "Total instantaneous solar/PV input power contributed by participating controllers. "
+            "A reconciled operational input-power value is preferred over a raw reported estimate "
+            "when a profile exposes both."
+        ),
     ),
     SystemMetricSpec(
         "charge_output_power_w",
