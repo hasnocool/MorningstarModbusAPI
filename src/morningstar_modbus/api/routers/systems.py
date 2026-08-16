@@ -1,5 +1,5 @@
 # src/morningstar_modbus/system_api.py
-"""FastAPI routes for system/site aggregation, topology, events, and SSE."""
+"""FastAPI routes for system/site aggregation, components, power flow, events, and SSE."""
 
 from __future__ import annotations
 
@@ -12,7 +12,9 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from morningstar_modbus.history import HistoryQueryError, normalize_time_range
+from morningstar_modbus.systems.components import SystemComponentService
 from morningstar_modbus.systems.data import SystemDataRepository, SystemNotFoundError
+from morningstar_modbus.systems.power import SystemPowerService
 from morningstar_modbus.systems.semantics import system_metric_catalog
 
 
@@ -39,6 +41,8 @@ def _sse(event: str, data: object, *, event_id: str | None = None) -> str:
 
 def attach_system_routes(app: FastAPI, data: SystemDataRepository) -> None:
     """Attach the read-only system/site API to an existing FastAPI application."""
+    components = SystemComponentService(data)
+    power = SystemPowerService(data, components)
 
     @app.get("/v1/systems/metrics/catalog")
     async def system_metric_definitions() -> list[dict[str, object]]:
@@ -62,10 +66,45 @@ def attach_system_routes(app: FastAPI, data: SystemDataRepository) -> None:
         except SystemNotFoundError as exc:
             raise _not_found(exc) from exc
 
+    @app.get("/v1/systems/{system_uid}/component-graph")
+    async def system_component_graph(system_uid: str) -> dict[str, object]:
+        try:
+            return await components.graph(system_uid)
+        except SystemNotFoundError as exc:
+            raise _not_found(exc) from exc
+
+    @app.get("/v1/systems/{system_uid}/components")
+    async def system_components(system_uid: str) -> list[dict[str, object]]:
+        try:
+            return await components.components(system_uid)
+        except SystemNotFoundError as exc:
+            raise _not_found(exc) from exc
+
+    @app.get("/v1/systems/{system_uid}/relationships")
+    async def system_relationships(system_uid: str) -> list[dict[str, object]]:
+        try:
+            return await components.relationships(system_uid)
+        except SystemNotFoundError as exc:
+            raise _not_found(exc) from exc
+
     @app.get("/v1/systems/{system_uid}/latest")
     async def system_latest(system_uid: str) -> dict[str, object]:
         try:
             return await data.latest(system_uid)
+        except SystemNotFoundError as exc:
+            raise _not_found(exc) from exc
+
+    @app.get("/v1/systems/{system_uid}/power-flow")
+    async def system_power_flow(system_uid: str) -> dict[str, object]:
+        try:
+            return await power.power_flow(system_uid)
+        except SystemNotFoundError as exc:
+            raise _not_found(exc) from exc
+
+    @app.get("/v1/systems/{system_uid}/energy-ledger")
+    async def system_energy_ledger(system_uid: str) -> dict[str, object]:
+        try:
+            return await power.energy_ledger(system_uid)
         except SystemNotFoundError as exc:
             raise _not_found(exc) from exc
 
@@ -86,7 +125,9 @@ def attach_system_routes(app: FastAPI, data: SystemDataRepository) -> None:
     @app.get("/v1/systems/{system_uid}/topology")
     async def system_topology(system_uid: str) -> dict[str, object]:
         try:
-            return await data.topology(system_uid)
+            topology = await data.topology(system_uid)
+            topology["component_graph"] = await components.graph(system_uid)
+            return topology
         except SystemNotFoundError as exc:
             raise _not_found(exc) from exc
 
@@ -146,7 +187,12 @@ def attach_system_routes(app: FastAPI, data: SystemDataRepository) -> None:
             last_heartbeat = time.monotonic()
             while not await request.is_disconnected():
                 snapshot = await data.latest(system_uid)
-                fingerprint = json.dumps(snapshot, separators=(",", ":"), sort_keys=True, default=str)
+                fingerprint = json.dumps(
+                    snapshot,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                    default=str,
+                )
                 if fingerprint != previous_snapshot:
                     previous_snapshot = fingerprint
                     yield _sse("telemetry", snapshot)
