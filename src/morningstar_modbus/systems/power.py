@@ -218,7 +218,8 @@ class SystemPowerService:
             )
         if system_charge_a is None:
             unknowns.append(
-                "whole-system charging current is unavailable or conflicting; controller-local charge remains separate"
+                "whole-system charging current is unavailable or conflicting; "
+                "controller-local charge remains separate"
             )
 
         known = (
