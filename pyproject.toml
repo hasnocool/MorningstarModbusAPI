@@ -28,7 +28,7 @@ maintenance = [
   "pypdf>=5,<7",
 ]
 storage = [
-  "pyarrow>=21,<22",
+  "pyarrow>=25,<26",
 ]
 
 [project.scripts]
