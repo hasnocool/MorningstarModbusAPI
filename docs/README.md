@@ -10,10 +10,11 @@ If you are integrating the service rather than modifying it internally:
 2. [`api.md`](api.md) — HTTP routes, identifiers, effective register maps, history query semantics, limits, exports, and examples.
 3. [`history-reconciliation-and-energy.md`](history-reconciliation-and-energy.md) — v0.6 controller history coverage, gap reconciliation, energy accounting, discrepancy metrics, and provenance semantics.
 4. [`system-api.md`](system-api.md) — normalized multi-controller system/site metrics, quality, topology, power flow, energy ledger, event timeline, SSE, retained-history providers, and optional SNMP trap ingestion.
-5. [`controller-scoped-data.md`](controller-scoped-data.md) — why `controller_uid` is the stable application identifier and how legacy history is unified.
-6. [`telemetry-history.md`](telemetry-history.md) — persisted history, polling-vs-storage cadence, aggregation/statistics semantics, retained-history evidence, and retention guarantees.
-7. [`controller-history-backfill.md`](controller-history-backfill.md) — controller-retained daily history, reconnect recovery, and provenance limits.
-8. [`polling-performance.md`](polling-performance.md) — automatic watcher cadence, persisted polling metrics, benchmarking, and RTU-utilization limits.
+5. [`system-metering.md`](system-metering.md) — authoritative GenStar whole-system currents/counters, conflict resolution, power-flow inputs, and energy-ledger authority.
+6. [`controller-scoped-data.md`](controller-scoped-data.md) — why `controller_uid` is the stable application identifier and how legacy history is unified.
+7. [`telemetry-history.md`](telemetry-history.md) — persisted history, polling-vs-storage cadence, aggregation/statistics semantics, retained-history evidence, and retention guarantees.
+8. [`controller-history-backfill.md`](controller-history-backfill.md) — controller-retained daily history, reconnect recovery, and provenance limits.
+9. [`polling-performance.md`](polling-performance.md) — automatic watcher cadence, persisted polling metrics, benchmarking, and RTU-utilization limits.
 
 If you are developing the project itself, start with [`architecture.md`](architecture.md), [`package-layout.md`](package-layout.md), and the root [`AGENTS.md`](../AGENTS.md).
 
@@ -24,12 +25,13 @@ If you are developing the project itself, start with [`architecture.md`](archite
 | [`api.md`](api.md) | Controller-first, system, and legacy HTTP APIs; identifiers; history/energy surfaces; effective register maps/reserved ranges; query limits; exports; errors; examples |
 | [`history-reconciliation-and-energy.md`](history-reconciliation-and-energy.md) | Day-level evidence coverage, recovered/partial/missing gaps, controller-vs-local energy accounting, quality, discrepancy metrics, and provenance |
 | [`system-api.md`](system-api.md) | Multi-controller system/site aggregation, normalized semantics, quality, component graph, power flow, energy ledger, topology, events, SSE, retained-history provider architecture, and SNMP trap ingestion |
+| [`system-metering.md`](system-metering.md) | Source-backed GenStar system charge/battery/load currents, system/internal/shunt counters, conflict-aware whole-system authority, and energy-ledger rules |
 | [`component-graph.md`](component-graph.md) | System component graph, typed relationships, power-flow views, and energy-ledger semantics |
 | [`architecture.md`](architecture.md) | Runtime layers, controller identity/UID flow, lifecycle, auto polling, persistence cadence, retained history, reconciliation analytics, system aggregation, capture/replay, and read-only safety |
 | [`package-layout.md`](package-layout.md) | Canonical domain package layout and dependency direction |
 | [`agent-system.md`](agent-system.md) | Shared coding-agent control tower, portable skills, harness adapters, specialist agents, and maintenance rules |
 | [`hardware-verification.md`](hardware-verification.md) | Physical capture, replay, verification reports, fixture publication, evidence levels, lifecycle/persistence distinctions, and sanitization |
-| [`telemetry-history.md`](telemetry-history.md) | Persisted telemetry retention, device/controller scopes, polling-vs-storage cadence, aggregation, statistics, streaming export, and retained-history evidence |
+| [`telemetry-history.md`](telemetry-history.md) | Persisted telemetry retention, device/controller scopes, polling-vs-storage cadence, aggregation, statistics, streaming export, retained-history evidence, and v0.6 reconciliation/energy boundaries |
 | [`controller-history-backfill.md`](controller-history-backfill.md) | Provenance-aware recovery of controller-retained daily history after startup/reconnect without fabricating raw samples |
 | [`polling-performance.md`](polling-performance.md) | Full-profile polling instrumentation, automatic interval selection, persisted performance metrics, RTU utilization estimates, persistence cadence, and safe benchmarking |
 | [`canonical-device-identity.md`](canonical-device-identity.md) | Evidence-derived physical-controller identity, canonical telemetry IDs, connection history, endpoint reconciliation, and migration behavior |
@@ -94,6 +96,7 @@ SQLite/WAL persistence
         |       |-- quality-aware metrics/history
         |       |-- component graph / topology
         |       |-- power flow / energy ledger
+        |       |-- authoritative whole-system metering when source-backed
         |       |-- unified event timeline
         |       `-- SSE telemetry/events
         |
@@ -119,7 +122,7 @@ Energy accounting likewise keeps independent sources separate. Controller-report
 
 Persistent identity prevents future IP/USB locator changes from creating another application-facing controller. Immutable controller UIDs remain stable even when identity evidence is promoted, and controller-scoped reads combine all historical member device IDs while preserving `source_device_id` on raw observations.
 
-The system/site layer is derived from those controller scopes. Additive metrics are summed only when their normalized semantics declare that operation; bus voltage/temperature/SOC use representative aggregations instead. Aggregate responses expose contributors, expected contributors, source observations, and `complete`/`partial`/`empty` quality rather than hiding missing controllers.
+The system/site layer is derived from those controller scopes. Additive metrics are summed only when their normalized semantics declare that operation; bus voltage/temperature/SOC use representative aggregations instead. Source-backed whole-system GenStar currents/counters are treated as non-additive system observations and use conflict-aware resolution rather than being summed across reporters. Aggregate responses preserve contributors, expected contributors, source observations, quality, and authority.
 
 ## Register terminology
 
@@ -156,6 +159,7 @@ Do not treat these as interchangeable. The controller-first API exists specifica
 | `recovered` gap | No persisted live samples for a day, but a complete retained daily record exists |
 | `partial` gap | No persisted live samples and only incomplete retained daily evidence exists |
 | `missing` gap | Neither persisted live samples nor retained evidence exists |
+| `conflict` quality | Multiple whole-system reporters materially disagree, so no single value is asserted |
 
 Catalog verification evidence is separate from controller identity/reconciliation confidence and runtime product-intelligence confidence. Cross-product system semantics and inferred bridge candidates are also kept separate from vendor-derived catalog facts.
 
