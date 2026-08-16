@@ -20,6 +20,23 @@ class DatabaseConfig:
 
 
 @dataclass(slots=True)
+class StorageConfig:
+    enabled: bool = True
+    archive_dir: str = "./morningstar-archive"
+    maintenance_interval_seconds: float = 21_600.0
+    hot_days: int = 7
+    warm_days: int = 30
+    cool_days: int = 180
+    warm_bucket_seconds: int = 10
+    cool_bucket_seconds: int = 60
+    cold_bucket_seconds: int = 300
+    archive_batch_rows: int = 10_000
+    parquet_compression_level: int = 19
+    prune_archived_raw: bool = True
+    incremental_vacuum_pages: int = 2048
+
+
+@dataclass(slots=True)
 class WatchConfig:
     poll_interval_seconds: PollInterval = 5.0
     discovery_interval_seconds: float = 30.0
@@ -96,6 +113,7 @@ class ApiConfig:
 @dataclass(slots=True)
 class AppConfig:
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
+    storage: StorageConfig = field(default_factory=StorageConfig)
     watch: WatchConfig = field(default_factory=WatchConfig)
     poll_benchmark: PollBenchmarkConfig = field(default_factory=PollBenchmarkConfig)
     serial: SerialConfig = field(default_factory=SerialConfig)
@@ -114,6 +132,7 @@ def load_config(path: str | None) -> AppConfig:
     payload = tomllib.loads(Path(path).read_text(encoding="utf-8"))
     config = AppConfig(
         database=DatabaseConfig(**payload.get("database", {})),
+        storage=StorageConfig(**payload.get("storage", {})),
         watch=WatchConfig(**payload.get("watch", {})),
         poll_benchmark=PollBenchmarkConfig(**payload.get("poll_benchmark", {})),
         serial=SerialConfig(**payload.get("serial", {})),
@@ -147,6 +166,30 @@ def _validate(config: AppConfig) -> None:
         raise ValueError("watch discovery interval must be positive")
     if config.database.telemetry_write_interval_seconds < 1.0:
         raise ValueError("database.telemetry_write_interval_seconds must be >= 1.0")
+
+    storage = config.storage
+    if storage.maintenance_interval_seconds < 60:
+        raise ValueError("storage.maintenance_interval_seconds must be >= 60")
+    if not 1 <= storage.hot_days <= storage.warm_days <= storage.cool_days:
+        raise ValueError("storage retention tiers must satisfy hot_days <= warm_days <= cool_days")
+    for name, value in (
+        ("warm_bucket_seconds", storage.warm_bucket_seconds),
+        ("cool_bucket_seconds", storage.cool_bucket_seconds),
+        ("cold_bucket_seconds", storage.cold_bucket_seconds),
+    ):
+        if value < 1:
+            raise ValueError(f"storage.{name} must be positive")
+    if not storage.warm_bucket_seconds <= storage.cool_bucket_seconds <= storage.cold_bucket_seconds:
+        raise ValueError("storage bucket sizes must increase from warm to cold")
+    if not 100 <= storage.archive_batch_rows <= 1_000_000:
+        raise ValueError("storage.archive_batch_rows must be within 100..1000000")
+    if not 1 <= storage.parquet_compression_level <= 22:
+        raise ValueError("storage.parquet_compression_level must be within 1..22")
+    if storage.incremental_vacuum_pages < 1:
+        raise ValueError("storage.incremental_vacuum_pages must be positive")
+    if not storage.archive_dir.strip():
+        raise ValueError("storage.archive_dir must not be empty")
+
     if not all(1 <= unit <= 247 for unit in config.watch.unit_ids):
         raise ValueError("unit_ids must be within 1..247")
     if not 1 <= config.watch.max_tcp_concurrency <= 256:

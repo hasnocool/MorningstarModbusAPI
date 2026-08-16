@@ -27,9 +27,13 @@ dev = [
 maintenance = [
   "pypdf>=5,<7",
 ]
+storage = [
+  "pyarrow>=25,<26",
+]
 
 [project.scripts]
 morningstar-modbus = "morningstar_modbus.cli.main:main"
+morningstar-storage = "morningstar_modbus.cli.storage:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/morningstar_modbus"]
