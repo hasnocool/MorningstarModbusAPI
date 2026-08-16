@@ -1,21 +1,22 @@
 ---
 name: api-development
-description: Add or modify MorningstarModbusAPI FastAPI routes, validation, response shaping, query limits, streaming exports, and API compatibility without leaking product logic or write capabilities.
+description: Add or modify read-only MorningstarModbusAPI FastAPI controller/system routes, validation, response shaping, SSE, query limits, streaming exports, component/power views, and API compatibility without leaking domain logic.
 ---
 
 # API development
 
-Use for `api.py`, FastAPI models/routes, query validation, streaming responses, or documented `/v1` behavior.
+Use for `api/`, especially `api/app.py`, `api/routers/controllers.py`, `api/routers/systems.py`, query validation,
+streaming responses, or documented `/v1` behavior.
 
 ## Establish API truth
 
-Inspect current `api.py` and API tests before relying on README endpoint tables. Active branches can add endpoints
-before all summary documentation catches up.
+Inspect current router/app code and API tests before relying on README endpoint tables. Active branches can add
+endpoints before every summary document catches up.
 
 Identify:
 
 - route path/method;
-- source of data (storage/catalog/runtime service);
+- owning data/service layer;
 - query/path parameters and limits;
 - success shape;
 - empty/not-found behavior;
@@ -26,9 +27,10 @@ Identify:
 ## Layer boundary
 
 FastAPI is presentation/orchestration. Do not copy product register maps, firmware rules, scaling, discovery
-fingerprints, or lifecycle transition logic into route handlers.
+fingerprints, controller identity logic, system aggregation, component reconciliation, or power formulas into
+route handlers.
 
-Routes should call the owning catalog/intelligence/storage/history/service layer and shape a stable response.
+Routes call owning `controllers`/`history`/`systems`/catalog services and shape a stable response.
 
 ## Read-only boundary
 
@@ -36,60 +38,79 @@ Do not expose controller mutation through:
 
 - write/register/coil endpoints;
 - arbitrary function-code passthrough;
-- "admin" raw Modbus commands;
-- hidden query parameters that trigger resets/configuration.
+- admin/raw Modbus commands;
+- hidden query parameters triggering reset/configuration/equalize;
+- SNMP SET or generator-control convenience routes.
 
-This API is for discovery, evidence, telemetry, history, and diagnostics under the current project contract.
+## Controller identifiers
 
-## Device identifiers
-
-Some device IDs can contain `/` or transport-derived delimiters. Preserve the branch's path-converter/query design
-rather than assuming a simple path segment. Add regression tests for identifiers that previously caused routing
-bugs.
+Some historical device IDs contain `/` or transport delimiters. Preserve existing path-converter/query design.
+Public physical-controller surfaces should use stable `controller_uid` where the current controller API does so;
+preserve `source_device_id` in history evidence.
 
 ## History endpoints
 
 When exposing telemetry history:
 
 - normalize/validate timestamps once;
-- keep half-open range semantics consistent with `history.py`;
+- keep half-open range semantics consistent with history helpers/tests;
 - validate resolution/register-count/point limits;
-- distinguish numeric vs state aggregation output;
-- return guidance for oversized normal JSON requests rather than consuming unbounded memory;
+- distinguish numeric versus state aggregation output;
+- return useful oversized-query errors rather than consuming unbounded memory;
 - use streaming responses for large exports.
+
+## System/site endpoints
+
+The system layer may expose inventory/latest/history/energy/health, topology, events, SSE, component graph,
+components/relationships, power flow, and energy ledger depending on branch truth.
+
+Route rules:
+
+- system metric semantics belong in `systems/semantics.py`;
+- component reconciliation/relationships belong in system services;
+- power/energy derivation belongs in system power services;
+- preserve complete/partial/empty quality and source observations;
+- do not coerce missing measurements to zero;
+- preserve observed/derived/unknown classification;
+- never make charger current appear as battery net current.
+
+## SSE
+
+SSE generators must be async, disconnect-aware, bounded, and heartbeat-safe. Avoid blocking I/O or unbounded
+per-connection state. Preserve event IDs/provenance and avoid replaying duplicates unintentionally.
 
 ## Runtime versus persisted state
 
-Be explicit about where data comes from. If detailed lifecycle exists only in watcher memory, do not fabricate it
-from a simpler persisted `devices.status`. If a task adds runtime-state APIs, define how the FastAPI app obtains a
-safe live reference and what happens before watcher startup/restart.
+Be explicit about data ownership. If detailed lifecycle is runtime-only, do not fabricate it from simpler persisted
+status. If adding runtime-state APIs, define safe app ownership/reference lifetime and restart behavior.
 
 ## Compatibility
 
-Prefer additive routes/fields. If changing an existing response:
+Prefer additive routes/fields. When changing an existing response:
 
 - identify consumers/tests;
-- preserve old query defaults when sensible;
-- document breaking changes/migration if unavoidable;
+- preserve defaults when sensible;
+- document breaking migration if unavoidable;
 - keep OpenAPI types accurate.
 
-## Errors
+## Errors and privacy
 
-Use intentional HTTP status codes for invalid input, unknown resources, oversized queries, and malformed time
-ranges. Do not convert every internal error into HTTP 200 with an `error` string.
-
-Avoid leaking local filesystem paths, raw secrets, or unsanitized capture identifiers in errors.
+Use intentional HTTP status codes for invalid input, unknown resources, oversized queries, malformed time ranges,
+and unknown system metrics. Avoid leaking local filesystem paths, secrets, or unsanitized capture identifiers.
 
 ## Tests
 
-Use FastAPI/httpx test patterns already in the repo. Cover:
+Use existing FastAPI/httpx patterns. Cover:
 
 - default success;
 - boundary/limit cases;
 - invalid input;
-- not-found/empty data;
+- not-found/empty/partial data;
 - backward compatibility;
-- streaming content type/rows when relevant;
-- device IDs with special path characters where relevant.
+- streaming content type/events/rows;
+- special-character IDs where relevant;
+- system contributor quality/provenance;
+- ReadyEdge reconciliation presentation;
+- observed/derived/unknown power/energy behavior.
 
-Then follow `testing-and-ci` and update API docs.
+Then follow `testing-and-ci` and update owning API docs.

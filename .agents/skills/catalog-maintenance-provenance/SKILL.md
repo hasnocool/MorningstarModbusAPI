@@ -1,6 +1,6 @@
 ---
 name: catalog-maintenance-provenance
-description: Maintain official Morningstar source indexing, PDF extraction, discrepancy/coverage classification, catalog proposals, SHA provenance, and CI review gates without auto-generating unsafe runtime maps.
+description: Maintain official Morningstar source indexing, PDF extraction, discrepancy classification, catalog proposals, exact SHA provenance, and CI review gates without auto-generating unsafe runtime maps or higher-level inferences.
 ---
 
 # Catalog maintenance and provenance
@@ -12,19 +12,17 @@ Read `docs/catalog-maintenance.md` and `catalog-proposals/README.md` first.
 
 ## Source policy
 
-`docs/vendor/morningstar/sources.json` is the authoritative source index.
+`docs/vendor/morningstar/sources.json` is authoritative.
 
-- Fetch only approved HTTPS Morningstar sources through the maintenance source policy.
+- Fetch only approved HTTPS Morningstar sources through maintenance source policy.
 - Record exact source artifact SHA-256 and available HTTP metadata.
-- Full vendor PDFs are source material and are not committed/republished in the repository.
-- Local cache/report outputs remain generated/ignored unless the project deliberately changes that policy.
+- Full vendor PDFs are source material and are not committed/republished.
+- Local cache/report outputs remain generated/ignored unless policy deliberately changes.
 
 ## Scanner philosophy
 
-The scanner is evidence assistance, not code generation authority.
-
-Morningstar documents contain multiple numeric address spaces and non-runtime hex material. Keep distinctions such
-as:
+The scanner is evidence assistance, not code-generation authority. Morningstar documents contain multiple
+address spaces and non-runtime hexadecimal material. Keep distinctions such as:
 
 - runtime registers;
 - EEPROM/configuration;
@@ -34,56 +32,62 @@ as:
 - reserved rows;
 - alternate encodings.
 
-Parse anchored table rows conservatively. Do not regress to scanning every `0xNNNN` token and treating it as
-telemetry.
+Parse anchored table rows conservatively. Do not scan every hexadecimal token as telemetry.
 
 ## Comparison semantics
 
-When comparing observations with catalog profiles:
+When comparing source observations with catalog profiles:
 
 - account for full multi-word `RegisterSpec` spans;
 - account for declared raw `RegisterBlock` coverage;
 - do not require vendor symbols to equal semantic API names;
 - keep holding/input/address-space semantics separate;
 - treat actual conflicts as actionable discrepancies;
-- treat valid runtime fields outside named/active coverage as optional coverage candidates;
-- count/describe ignored non-runtime observations instead of reporting them as catalog bugs.
+- treat valid runtime fields outside named coverage as optional coverage candidates;
+- count/describe ignored non-runtime observations rather than calling them catalog bugs.
 
-A large scanner count is not proof that thousands of catalog edits are needed.
+A large scanner count is not proof that thousands of edits are needed.
 
-## Accepting a real vendor-derived change
+## Accepting a vendor-derived change
 
 For a genuine map/source change:
 
-1. inspect the exact official source artifact/page/table;
-2. update the owning family/catalog declaration manually;
-3. add or update deterministic tests;
-4. add a `catalog-proposals/*.json` provenance record containing the exact source ID/SHA-256, affected profiles,
-   reviewed changes, and tests;
+1. inspect exact official source artifact/page/table;
+2. update owning family/catalog declaration manually;
+3. add/update deterministic tests;
+4. add required `catalog-proposals/*.json` with exact source ID/SHA-256, affected profiles, reviewed changes, tests;
 5. run provenance validation and catalog tests;
-6. update catalog docs/coverage if public behavior changed.
+6. update catalog/system docs if public behavior changed.
 
-Never accept a scanner observation solely because its confidence score is high.
+Never accept a scanner observation solely because a confidence score is high.
+
+## Higher-level inference boundary
+
+Source provenance for a register/descriptor does not automatically validate a higher-level claim. For example:
+
+- a ReadyEdge Connected Product descriptor proves what ReadyEdge reported, not necessarily independent physical
+  identity or wiring;
+- a shared Modbus endpoint does not prove electrical topology;
+- a documented power register does not justify inventing battery net/load/generator flow;
+- a documented logger does not justify an undocumented history-replay protocol.
+
+Record limitations instead of guessing.
 
 ## Source updates
 
 If an official URL/version changes, distinguish:
 
-- same document moved to a new URL;
-- new revision with actual register differences;
-- changed binary/hash with no semantic change;
+- same document moved;
+- new revision with semantic differences;
+- binary/hash change without semantic change;
 - unavailable/deprecated source.
 
-Do not silently point an old `source_id` at semantically different evidence without review.
+Do not silently repoint an old source ID at semantically different evidence.
 
-## Maintenance CLI
+## Maintenance CLI and CI
 
-Inspect `maintenance/__main__.py` for branch truth. Established workflows include source/catalog validation and
-advisory scans with optional cache reuse. The scanner should never push/merge catalog edits itself.
-
-## CI
-
-Catalog/source-index edits are expected to trigger the provenance review gate and tests. Do not bypass the gate
-by renaming files or excluding paths.
+Inspect current `maintenance/` entry points for branch truth. Scanner workflows remain advisory and should never
+push/merge catalog edits themselves. Catalog/source-index edits are expected to trigger provenance review gates;
+do not bypass them by path tricks.
 
 Finish with `testing-and-ci`.

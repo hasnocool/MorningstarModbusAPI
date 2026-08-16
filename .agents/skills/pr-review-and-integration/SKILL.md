@@ -1,92 +1,100 @@
 ---
 name: pr-review-and-integration
-description: Review, prepare, update, and safely integrate MorningstarModbusAPI GitHub pull requests using exact base/head state, diffs, CI, review threads, scope, safety invariants, and merge protection.
+description: Review, prepare, update, stack, and safely integrate MorningstarModbusAPI pull requests using exact base/head state, diffs, CI/provenance, review threads, architecture/safety invariants, and expected-head protection.
 ---
 
 # PR review and integration
 
-Use when opening/updating/reviewing/merging PRs or diagnosing their checks/reviews.
+Use when opening/updating/reviewing/merging PRs or diagnosing checks/reviews.
 
 ## Resolve exact PR state
 
-Before conclusions or writes, inspect:
+Before conclusions or writes inspect:
 
-- repository and PR number;
+- repository/PR number;
 - state/draft status;
 - base branch/SHA;
 - head branch/SHA;
 - mergeability;
 - changed filenames and diff/patch;
-- commits if branch stacking/history matters;
-- current `main` if the base may have moved;
-- CI/checks associated with the exact head;
-- review submissions and unresolved inline threads.
+- commits if stacking/history matters;
+- current `main` if base may have moved;
+- CI/checks associated with exact head;
+- submitted reviews and unresolved inline threads.
 
-Do not use a green check from an older head after new commits landed.
+Do not use green checks from an older head after new commits land.
 
 ## Review priorities
 
-Review the diff against root `AGENTS.md` and the relevant domain skill. Prioritize:
+Review against root `AGENTS.md` and domain skills. Prioritize:
 
-1. accidental Modbus write/control paths;
+1. accidental Modbus/SNMP/controller write/control paths;
 2. data loss/destructive migrations;
 3. wrong product/register/function/firmware semantics;
-4. evidence overclaim (especially synthetic -> physical hardware);
-5. async/blocking/cleanup/reconnect regressions;
-6. API backward compatibility and unbounded responses;
-7. vendor-source/provenance violations;
-8. missing regression tests;
-9. stale/misleading docs/config;
-10. unrelated generated/debug/secrets/capture files.
+4. physical controller identity split/duplication or lost history provenance;
+5. evidence overclaim, especially synthetic/inferred -> physical;
+6. async/blocking/cleanup/reconnect regressions;
+7. incorrect system aggregation/quality or controller double-counting;
+8. topology inference presented as physical fact;
+9. fabricated battery/load/generator/power/energy values;
+10. API compatibility/unbounded responses;
+11. vendor-source/provenance violations;
+12. missing tests/stale docs/config;
+13. unrelated generated/debug/secrets/capture files.
 
-A large diff is not automatically bad; verify it is coherent and owned by the requested feature.
+A large diff is not automatically bad; verify it is coherent and owned by requested behavior.
 
 ## Open PR workflow
 
-Before opening a PR:
+Before opening:
 
-- ensure branch starts from the intended base;
+- ensure branch starts from intended base;
 - inspect final diff/stat;
-- run validation;
-- write a body describing behavior, architecture, tests, safety/data/evidence implications, and any known follow-up;
+- run/observe validation;
+- write body describing behavior, architecture, tests, safety/data/evidence implications, dependency/follow-up;
 - do not claim unrun tests.
 
-Use draft status for intentionally unfinished/stacked/experimental work.
+Use draft only when intentionally unfinished/experimental. A stacked PR can be ready for review if its dependency
+and incremental diff are explicit and its own checks are green.
 
-## Addressing review feedback
+## Stacked/overlapping work
+
+If a new change depends on an unmerged feature branch:
+
+- make dependency explicit;
+- branch from the dependency head;
+- target the dependency branch so the PR diff is incremental;
+- do not duplicate the dependency's runtime diff into another `main` PR;
+- after dependency merges, rebase/retarget as appropriate and reverify CI on the new exact head/base.
+
+If another open PR merely overlaps rather than being a dependency, choose independent versus stacked strategy
+deliberately and avoid pushing unrelated changes into its branch.
+
+## Address review feedback
 
 Classify each thread:
 
-- real correctness/safety issue -> fix + test;
+- correctness/safety issue -> fix + regression test;
 - maintainability improvement -> implement if in scope;
 - misunderstanding -> reply with concrete source/test evidence;
-- stale thread after code changed -> verify new code, reply, resolve when justified.
+- stale after code change -> verify new code, reply/resolve when justified.
 
 Do not resolve an actionable thread without addressing it.
 
 ## Merge criteria
 
-Only merge when the user/request authorizes integration and:
+Only merge when user authorizes integration and:
 
 - PR is not unintentionally draft;
 - exact head is reviewed;
-- required/relevant CI is green;
+- required/relevant CI and provenance gates are green;
 - no unresolved actionable review threads remain;
 - base/head still match expectations;
 - final diff preserves project hard rules.
 
-Use expected-head SHA when the merge API supports it so a last-second branch update cannot be merged unseen.
-
-## Stacked/overlapping work
-
-If another open PR changes the same subsystem:
-
-- identify overlap explicitly;
-- avoid pushing unrelated changes into that branch;
-- choose independent base, stacked base, or rebase deliberately;
-- do not document the other PR's behavior as merged unless it is actually in the branch.
+Use expected-head SHA protection when available.
 
 ## After merge
 
-Verify the PR reports merged and inspect the resulting `main` head when the task depends on integration. If a
-release or follow-up depends on the merge, use the actual merge SHA/state rather than assuming success.
+Verify PR reports merged and inspect resulting base/main state when follow-up depends on integration. Retarget
+stacked follow-ups based on actual merged state rather than assumption.

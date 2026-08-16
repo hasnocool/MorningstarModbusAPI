@@ -2,15 +2,10 @@
 applyTo: "src/**/*.py"
 ---
 
-# Python implementation rules
+Follow root `AGENTS.md` and the owning canonical skill. Use canonical v0.5+ package imports only.
 
-Follow root `AGENTS.md` and the relevant canonical skill.
+Keep async code non-blocking, serial blocking work behind the existing executor boundary, concurrency bounded,
+cleanup/cancellation correct, and shared domain logic out of FastAPI routes. Preserve immutable `controller_uid`
+and raw/source provenance across layers. Use typed composable functions and configured Ruff rules.
 
-- Target the Python version and Ruff rules in current `pyproject.toml`.
-- Prefer typed, small, composable functions/data models.
-- Keep asyncio code non-blocking. Preserve the executor boundary for blocking PySerial operations.
-- Keep locks narrowly scoped; bound task/discovery concurrency; preserve cancellation and cleanup.
-- Do not hide errors with broad exception handling solely to keep a loop alive.
-- Keep product/register knowledge out of generic transport/API modules.
-- Preserve the project's read-only Modbus boundary.
-- Add/update deterministic tests for changed behavior and run `testing-and-ci` before completion.
+For system/power code, model missing data explicitly; do not coerce unknown measurements to zero.

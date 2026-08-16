@@ -4,19 +4,21 @@
 @.agents/README.md
 
 `AGENTS.md` is the canonical project control tower. Do not maintain an independent copy of project facts here.
+For substantial work, invoke or consult the `morningstar-project` skill; it dispatches to canonical
+`.agents/skills/*/SKILL.md` procedures. Use the canonical `system-topology-and-power` skill for system/site,
+ReadyEdge component, topology, power-flow, or energy-ledger work.
 
-For substantial work, invoke or consult the `morningstar-project` skill. It dispatches to the canonical
-`.agents/skills/*/SKILL.md` procedures so Claude Code/OpenClaude use the same workflows as the other agents.
-
-Available project subagents under `.claude/agents/` specialize in:
+Available specialist agents under `.claude/agents/` cover:
 
 - end-to-end project maintenance;
 - catalog/intelligence/vendor-source work;
 - capture/replay/verification/lifecycle work;
+- system/site topology, ReadyEdge component reconciliation, power flow, and energy accounting;
 - independent read-only code review.
 
-Delegate when specialization improves focus, but the parent agent remains responsible for branch truth,
-integration, tests, and the final claim of completion.
+For system work, preserve immutable `controller_uid`, distinguish transport topology from component/electrical
+relationships, and keep unavailable battery/load/generator quantities explicitly unknown. Never force an energy
+balance closed with invented values.
 
-Never infer current functionality from an old conversation or an unmerged PR. Inspect the checked-out branch.
-The project's read-only Modbus boundary in `AGENTS.md` is a hard architectural constraint.
+Delegate when specialization helps, but the parent remains responsible for branch truth, integration, tests,
+and final completion claims. The read-only Modbus/SNMP boundary in `AGENTS.md` is a hard constraint.

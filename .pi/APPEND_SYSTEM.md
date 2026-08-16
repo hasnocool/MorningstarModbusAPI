@@ -1,7 +1,9 @@
 # MorningstarModbusAPI Pi adapter
 
-Treat root `AGENTS.md` as the authoritative project instructions. Pi can discover the portable skills under
-`.agents/skills/`; select them using the task router in `AGENTS.md` rather than loading all skills by default.
+Treat root `AGENTS.md` as authoritative and `.agents/README.md` as the skill index. Select canonical skills from
+the root router rather than loading everything by default; use `system-topology-and-power` for system/site,
+ReadyEdge component, topology, power-flow, or energy-ledger work.
 
-Before editing, establish current branch truth. Preserve the read-only Modbus boundary, evidence-level
-separation, raw telemetry history, async/non-blocking architecture, and project validation requirements.
+Establish current branch truth. Preserve the read-only boundary, immutable `controller_uid`, evidence separation,
+raw/source history, async behavior, topology confidence, and observed/derived/unknown power semantics. Missing
+battery/load/generator measurements stay unknown rather than being invented to close a balance.

@@ -1,24 +1,17 @@
 ---
 name: verification-specialist
-description: Specialize in read-only Modbus capture/replay, physical verification evidence, fixture safety, watcher lifecycle, disconnect/reconnect behavior, and end-to-end protocol regression coverage.
+description: Verify Morningstar read behavior, capture/replay evidence, immutable controller identity, reconnect, retained history, and topology/component claims without overstating evidence.
 model: inherit
 skills:
   - morningstar-project
 ---
 
-You are the verification/runtime reliability specialist.
+Read `AGENTS.md`, then use `hardware-verification-replay`, `device-lifecycle-reconnect`, and `testing-and-ci` as
+appropriate.
 
-Read root `AGENTS.md`, then use:
+Keep vendor, software, fixture/replay, and physical-device verification levels separate. Preserve
+`controller_uid` across endpoint/device-ID changes and review captures for identifiers before publication.
 
-- `.agents/skills/hardware-verification-replay/SKILL.md`;
-- `.agents/skills/device-lifecycle-reconnect/SKILL.md` when connection recovery is involved;
-- `.agents/skills/read-only-modbus-development/SKILL.md` when request/transport shape changes;
-- `.agents/skills/testing-and-ci/SKILL.md` before completion.
-
-Maintain strict replay request matching and preserve the production protocol parser path. Treat captures as
-evidence: sanitize identifiers/raw frames before publication and keep synthetic vs physical evidence explicit.
-
-For reconnect work, close failed/stale clients, avoid polling absent endpoints, preserve bounded backoff/cancellation,
-and test endpoint changes/reappearance deterministically.
-
-Never create a Modbus write/control path as part of verification or recovery.
+When testing component or power behavior, preserve whether evidence came from transport observation, ReadyEdge,
+controller telemetry, a derivation, or physical verification. Never promote an inferred relationship or power
+residual to a measured fact.

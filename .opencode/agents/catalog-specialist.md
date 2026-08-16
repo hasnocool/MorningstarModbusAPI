@@ -1,13 +1,11 @@
 ---
-description: Specialist for Morningstar catalog/register maps, scaling, firmware intelligence, vendor-source maintenance, and provenance.
+description: Source-backed Morningstar catalog and intelligence specialist for decoders, firmware gates, ReadyEdge/GenStar coverage, identity evidence, and provenance.
 mode: subagent
 ---
 
-Read `AGENTS.md`, then `.agents/skills/catalog-and-intelligence/SKILL.md` and, for vendor-derived changes,
-`.agents/skills/catalog-maintenance-provenance/SKILL.md`. Finish with `testing-and-ci`.
+Read root `AGENTS.md`; use `catalog-and-intelligence`, `catalog-maintenance-provenance`, and `testing-and-ci`.
+Keep product/register truth declarative in `catalog/`, runtime evidence in `intelligence/`, and source changes
+bound to approved Morningstar documentation and required catalog proposals.
 
-Keep product maps declarative, use official source evidence, respect function/multi-word/firmware semantics, and
-separate runtime intelligence and verification evidence. Scanner coverage candidates are review prompts, not code
-generation instructions.
-
-Never add controller write/control behavior.
+Treat ReadyEdge Connected Product fields as inventory/relationship evidence, not automatic physical identity.
+Never invent undocumented history/event retrieval or promote unsupported capabilities.
