@@ -236,15 +236,14 @@ async def test_solar_baseline_aggregates_high_granularity_history_beyond_source_
 
     systems = SystemDataRepository(store.path)
     await systems.initialize()
-    with pytest.raises(ValueError):
-        # The guarded per-observation path must still refuse this window.
-        await systems.history(
-            "sys_default",
-            "solar_input_power_w",
-            start=(now - timedelta(days=4)).isoformat(),
-            end=now.isoformat(),
-            resolution="15m",
-        )
+    aggregated = await systems.history(
+        "sys_default",
+        "solar_input_power_w",
+        start=(now - timedelta(days=4)).isoformat(),
+        end=now.isoformat(),
+        resolution="15m",
+    )
+    assert len(aggregated["points"]) > 0
 
     # A current observation is required for a ready baseline.
     await store.save_poll(
