@@ -28,6 +28,21 @@ The controller identity layer adds persistent physical-controller records and id
 
 Historical foreign keys are not rewritten merely to make queries convenient. Raw observations remain owned by their original `device_id`.
 
+## Legacy endpoint placeholders and inventory visibility
+
+Older databases can contain endpoint-only controller identities created before the stronger physical-controller identity model existed. Those rows may represent historical connection provenance rather than independently verified physical controllers.
+
+The default `GET /v1/controllers` inventory therefore suppresses an identity only when all of the following are true:
+
+- its identity source is only the endpoint path/address;
+- none of its connections are currently active;
+- every persisted connection match was created by the legacy bootstrap path;
+- the identity has never been rediscovered by the modern controller registry.
+
+This prevents stale entries such as an old `/dev/ttyUSB1` endpoint from appearing as a second offline physical controller after the real controller has been rediscovered with stronger identity evidence.
+
+No history is deleted. The underlying `devices`, connection, telemetry, and identity records remain available for provenance and legacy device-scoped queries. A controller genuinely discovered by the modern registry remains visible even if its best available identity is still endpoint-only and it later goes offline.
+
 ## Unified physical-controller history
 
 A physical controller can have historical data under several device IDs. Controller-scoped queries resolve the immutable UID to all historical members and query them as one ordered dataset.
