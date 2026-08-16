@@ -55,13 +55,14 @@ port = 502
 # Explicit hosts are safest and are checked every discovery cycle.
 hosts = []
 # Optional local CIDRs. Example: ["192.168.1.0/24"]
-# Networks larger than /20 are rejected to prevent accidental broad scanning.
 subnets = []
 
 [backfill]
 # TS-MPPT-60/45 Ethernet controllers expose retained daily history through
 # their built-in LiveView datalog page. Backfill runs after live polling succeeds
 # so a slow or unavailable web page never delays normal telemetry acquisition.
+# The runtime now dispatches through a retained-history provider registry so
+# additional verified Morningstar logger backends can be added independently.
 enabled = true
 on_startup = true
 on_reconnect = true
@@ -72,6 +73,22 @@ http_port = 80
 http_path = "/datalog.html"
 timeout_seconds = 3.0
 max_response_bytes = 1048576
+
+[system]
+# All discovered physical controllers are persistently enrolled into this
+# read-only default system/site. Historical membership is retained across
+# endpoint, IP, and USB path changes because membership uses controller_uid.
+default_uid = "sys_default"
+default_name = "default"
+
+[snmp]
+# Optional inbound trap capture. Disabled by default. The listener never sends
+# SNMP GET/SET requests and stores only source metadata + a packet digest, not
+# raw datagrams or community strings.
+enabled = false
+host = "127.0.0.1"
+port = 9162
+max_packet_bytes = 65507
 
 [api]
 host = "127.0.0.1"
