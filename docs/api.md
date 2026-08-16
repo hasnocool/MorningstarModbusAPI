@@ -1,306 +1,163 @@
 # HTTP API guide
 
-MorningstarModbusAPI exposes a read-only FastAPI service over persisted telemetry, controller identity, history, polling performance, catalog metadata, effective register semantics, and verification evidence.
+MorningstarModbusAPI exposes a read-only FastAPI service over persisted telemetry, physical-controller identity, controller-retained history, reconciliation analytics, energy accounting, polling performance, catalog metadata, device intelligence, and normalized system/site data.
 
-For new integrations, use the **controller-first API** under `/v1/controllers`. The older `/v1/devices` routes remain supported for backward compatibility and raw storage-level inspection.
+For new integrations, prefer the **controller-first API** under `/v1/controllers` and persist `controller_uid`. Use `/v1/systems` for multi-controller/site views. The older `/v1/devices` routes remain available for raw storage-level compatibility.
 
 ## Start here
 
-Run the combined watcher/API process:
-
 ```bash
 morningstar-modbus --config config.toml run
-```
-
-The default bind address is `127.0.0.1:8080`.
-
-Useful discovery endpoints:
-
-```bash
 curl http://127.0.0.1:8080/health
 curl http://127.0.0.1:8080/v1/controllers
 curl http://127.0.0.1:8080/v1/catalog
 ```
 
-Interactive OpenAPI documentation is available at:
+Interactive OpenAPI documentation is available at `http://127.0.0.1:8080/docs`.
 
-```text
-http://127.0.0.1:8080/docs
-```
-
-## Which identifier should an application store?
-
-Three identifiers can appear in responses:
+## Identifiers
 
 | Field | Meaning | Recommendation |
 | --- | --- | --- |
 | `controller_uid` | Immutable generated identity for one physical controller | **Persist this in new applications** |
-| `controller_id` | Current strongest evidence-derived identity alias | Useful for diagnostics; may be promoted as identity evidence improves |
-| `device_id` | Raw telemetry-owning storage row / endpoint-era history segment | Use when intentionally querying one storage segment |
+| `controller_id` | Current strongest evidence-derived alias | Diagnostics/compatibility; may change as evidence improves |
+| `device_id` | Raw telemetry-owning storage row / historical endpoint segment | Use only when intentionally querying one storage segment |
+| `system_uid` | Persistent grouping above one or more physical controllers | System/site API |
 
-A physical controller may have several historical `device_id` values from before canonical identity reconciliation. Controller-scoped queries resolve those members automatically.
-
-Although controller routes are named `{controller_uid}`, the registry also resolves known historical/current `controller_id` aliases for compatibility. Applications should still persist the immutable UID returned by `/v1/controllers`.
-
-See [`controller-scoped-data.md`](controller-scoped-data.md) for the full identity model.
+Controller-scoped reads resolve all historical member `device_id` values and preserve `source_device_id` on raw observations.
 
 ## Controller-first API
 
-### Inventory
+### Inventory and live telemetry
 
 ```http
 GET /v1/controllers
 GET /v1/controllers/{controller_uid}
-```
-
-The controller inventory is the preferred application-facing view. It includes the immutable UID, current evidence-derived identity, canonical telemetry owner, historical member device IDs, status, and connection history.
-
-Example flow:
-
-```bash
-curl http://127.0.0.1:8080/v1/controllers
-curl http://127.0.0.1:8080/v1/controllers/ctrl_0123456789abcdef0123456789abcdef
-```
-
-### Latest telemetry and samples
-
-```http
 GET /v1/controllers/{controller_uid}/latest
 GET /v1/controllers/{controller_uid}/samples
 ```
 
-Sample query:
-
-```bash
-curl 'http://127.0.0.1:8080/v1/controllers/ctrl_0123456789abcdef0123456789abcdef/samples?limit=250&order=desc'
-```
-
-Controller-scoped samples can span multiple historical raw device IDs. Raw rows include `source_device_id` so provenance is retained.
-
-### Single-register history
+### Register history and statistics
 
 ```http
 GET /v1/controllers/{controller_uid}/registers/{name}/history
-```
-
-Example:
-
-```bash
-curl 'http://127.0.0.1:8080/v1/controllers/ctrl_0123456789abcdef0123456789abcdef/registers/battery_voltage/history?limit=1000&order=asc'
-```
-
-### Multi-register history
-
-```http
 GET /v1/controllers/{controller_uid}/registers/history
-```
-
-Repeat the `name` query parameter to request several series:
-
-```bash
-curl 'http://127.0.0.1:8080/v1/controllers/ctrl_0123456789abcdef0123456789abcdef/registers/history?name=battery_voltage&name=array_voltage&resolution=5m&order=asc'
-```
-
-Supported resolutions are:
-
-- `raw`
-- `1m`
-- `5m`
-- `15m`
-- `1h`
-- `1d`
-
-Raw controller-scoped points include `source_device_id`. Aggregated points intentionally represent the physical-controller timeline as a whole, so they do not claim one source device ID.
-
-### Register statistics
-
-```http
 GET /v1/controllers/{controller_uid}/registers/stats
 ```
 
-Example:
+Multi-register history supports repeated `name` parameters and resolutions including `raw`, `1m`, `5m`, `15m`, `1h`, and `1d`. Raw controller-scoped points include `source_device_id`; aggregated points represent the unified physical-controller timeline.
 
-```bash
-curl 'http://127.0.0.1:8080/v1/controllers/ctrl_0123456789abcdef0123456789abcdef/registers/stats?name=battery_voltage&name=charge_state'
-```
-
-Numeric and text/state registers use different semantics:
-
-- numeric series include count, min/max/avg, first/last, extrema timestamps, duration, and delta where meaningful;
-- text/state series include first/last, transition counts, duration, and state occurrence counts.
-
-A sampled average is not automatically a time-weighted physical average.
-
-### History summary
+### Raw history summary and export
 
 ```http
 GET /v1/controllers/{controller_uid}/history/summary
+GET /v1/controllers/{controller_uid}/history/export
 ```
 
-This reports observation coverage such as first/last sample, counts, latency summary, register-observation counts, error counts, and database size for the selected range.
+Exports support streaming `csv` and `jsonl`. Normal JSON history responses are bounded; use streaming export for large ranges.
 
-### Controller-retained daily history
+## Controller-retained daily history
 
 ```http
 GET /v1/controllers/{controller_uid}/history/controller-daily
 GET /v1/controllers/{controller_uid}/history/controller-daily/summary
 ```
 
-These routes expose separately persisted controller-retained daily records where the configured backfill source is supported. They are not synthetic replacements for missing raw Modbus samples.
+These routes expose separately persisted controller-retained daily records from verified retained-history providers. They do **not** reconstruct missing high-frequency Modbus samples.
+
+For the TriStar MPPT LiveView backend, a complete retained day may provide fields such as daily Wh/Ah, min/max battery voltage, max array voltage/output power, temperatures, charge-stage durations, alarms, and faults. Provider availability depends on controller family/transport and verified retrieval support.
 
 See [`controller-history-backfill.md`](controller-history-backfill.md).
 
-### Streaming export
+## v0.6 history reconciliation and coverage
+
+### Day-level evidence coverage
 
 ```http
-GET /v1/controllers/{controller_uid}/history/export
+GET /v1/controllers/{controller_uid}/history/coverage
 ```
 
-Supported formats:
+Optional `from` and `to` parameters use `YYYY-MM-DD` with inclusive-start / exclusive-end semantics.
 
-- `format=csv`
-- `format=jsonl`
+The response deliberately distinguishes:
 
-Example:
+- **realtime coverage** — days containing one or more persisted `poll_samples` rows;
+- **daily evidence coverage** — days containing persisted live samples or a complete controller-retained daily record;
+- **recovered days** — days with no persisted live samples but complete retained evidence;
+- **missing days** — days with neither live samples nor complete retained evidence;
+- the latest retained-history synchronization result.
 
-```bash
-curl -o telemetry.csv \
-  'http://127.0.0.1:8080/v1/controllers/ctrl_0123456789abcdef0123456789abcdef/history/export?name=battery_voltage&name=array_voltage&resolution=1m&format=csv'
+This is day-level evidence coverage, not a claim that every expected sub-minute sample exists.
+
+### Gap reconciliation
+
+```http
+GET /v1/controllers/{controller_uid}/history/gaps
 ```
 
-Exports stream rows rather than building the entire result in memory.
+A gap is a calendar day with zero persisted live samples. Consecutive days with the same status are grouped.
 
-Raw controller exports include both `controller_uid` and `source_device_id`. Aggregated controller exports include `controller_uid` and can span several source device IDs.
+Statuses:
 
-### Polling performance
+| Status | Meaning |
+| --- | --- |
+| `recovered` | No persisted live samples, but a complete controller daily record exists |
+| `partial` | No persisted live samples and only incomplete retained evidence exists |
+| `missing` | Neither persisted live samples nor retained evidence exists |
+
+Recovered gaps remain daily summaries and are never expanded into synthetic raw telemetry.
+
+See [`history-reconciliation-and-energy.md`](history-reconciliation-and-energy.md).
+
+## v0.6 controller energy accounting
+
+### Daily energy
+
+```http
+GET /v1/controllers/{controller_uid}/energy/daily
+```
+
+The API keeps independent measurements separate:
+
+- `controller_reported_wh` — energy reported by the controller's retained daily logger;
+- `integrated_output_wh` — local trapezoidal integration of persisted `output_power` observations.
+
+`max_gap_seconds` controls the largest interval that local integration may bridge. The default is `300` seconds and accepted values are `1..3600`. Longer intervals are skipped rather than assuming power was constant during an outage.
+
+When both measurements exist, the API reports `difference_wh` and `difference_percent`. Quality fields describe sample count, integrated time, skipped between-sample time, retained-record completeness, and provenance classes.
+
+### Energy range summary
+
+```http
+GET /v1/controllers/{controller_uid}/energy/summary
+```
+
+This aggregates controller-reported and locally integrated Wh over the requested date range while retaining independent source/day counts. One source is never silently substituted for the other.
+
+## Polling performance
 
 ```http
 GET /v1/controllers/{controller_uid}/polling/performance
 GET /v1/controllers/{controller_uid}/polling/history
 ```
 
-The `mode` query parameter accepts:
-
-- `watch` — persisted samples from normal watcher polling;
-- `benchmark` — samples from `benchmark-polling`;
-- `all` — both modes.
-
-Examples:
-
-```bash
-curl 'http://127.0.0.1:8080/v1/controllers/ctrl_0123456789abcdef0123456789abcdef/polling/performance?mode=watch&window=300'
-
-curl 'http://127.0.0.1:8080/v1/controllers/ctrl_0123456789abcdef0123456789abcdef/polling/history?mode=benchmark&limit=100'
-```
-
-Watcher performance rows follow the normal watcher persistence cadence. If the service is polling a controller faster than `database.telemetry_write_interval_seconds`, the API's watcher `poll_rate_hz` describes persisted performance rows and is not necessarily the instantaneous in-memory Modbus read rate used by automatic interval evaluation.
-
-Explicit `benchmark-polling` persistence is separate and can record at the requested benchmark cadence. Use `--no-persist` to avoid storing benchmark samples.
+`mode` accepts `watch`, `benchmark`, or `all`. Watcher polling may run faster than persisted performance/history rows because normal persistence cadence is independently limited.
 
 See [`polling-performance.md`](polling-performance.md).
 
-## Time-range semantics
+## System/site API
 
-History routes that accept `from` and `to` use normalized UTC timestamps and a half-open range:
+The `/v1/systems` surface provides normalized multi-controller/site data above immutable controller identities. It includes quality-aware aggregate telemetry/history and, where configured/supported, component graph, topology, power-flow, energy-ledger/balance, unified events, and SSE streams.
 
-```text
-from <= observed_at < to
-```
-
-Timestamps must include a timezone.
-
-Example:
-
-```bash
-curl 'http://127.0.0.1:8080/v1/controllers/ctrl_0123456789abcdef0123456789abcdef/registers/history?name=battery_voltage&from=2026-08-01T00:00:00-07:00&to=2026-08-02T00:00:00-07:00&resolution=15m'
-```
-
-Daily retained-history routes use `YYYY-MM-DD` dates instead of timestamps.
-
-## Query limits and oversized responses
-
-Normal JSON history endpoints are deliberately bounded. Current guardrails include:
-
-- up to 50 requested register names per multi-register query;
-- up to 20,000 JSON history points for the normal multi-register response;
-- route-specific `limit` bounds on sample/history lists.
-
-If a history query is too large, the API returns HTTP `413`. Narrow the time range, request fewer registers, use a coarser resolution, or use the streaming export endpoint.
-
-## Common HTTP errors
-
-| Status | Meaning |
-| --- | --- |
-| `400` | Invalid timestamp, range, order, resolution, mode, export format, or other query input |
-| `404` | Unknown controller/device/catalog profile, missing intelligence, or no latest sample where a latest record was requested |
-| `413` | A bounded JSON history query exceeds the allowed point count |
-
-The service does not return HTTP mutation endpoints because controller writes are outside the project contract.
+See [`system-api.md`](system-api.md) and [`component-graph.md`](component-graph.md) for the canonical route and semantics reference.
 
 ## Legacy device-scoped API
 
-The `/v1/devices/...` API remains available for applications that already use raw device IDs or need to inspect one telemetry-owning segment directly.
-
-### Inventory and identity
+The `/v1/devices/...` API remains available for raw storage-level compatibility:
 
 ```http
 GET /v1/devices
 GET /v1/devices/{device_id}
-GET /v1/devices/intelligence?device_id=...
-GET /v1/devices/register-map?device_id=...
-GET /v1/devices/profile/validation?device_id=...
-```
-
-The `{device_id:path}` route intentionally supports device IDs containing `/`.
-
-### Effective register map and reserved ranges
-
-`GET /v1/devices/register-map?device_id=...` uses the persisted intelligence profile and firmware to build the effective catalog view for that exact device.
-
-The response contains:
-
-- `profile`, `family`, `catalog_revision`, and resolved `firmware`;
-- firmware-applicable read `blocks`;
-- firmware-applicable named `registers`;
-- firmware-applicable `reserved_ranges`.
-
-A reserved range is not a missing semantic mapping. It means Morningstar explicitly documents one or more words inside a readable block as reserved. Broad profile reads can still retain those words under raw evidence names such as `holding_0x003F`, but consumers should not assign a semantic label to them.
-
-Example shape:
-
-```json
-{
-  "profile": "tristar_mppt",
-  "firmware": "32",
-  "reserved_ranges": [
-    {
-      "address": 5,
-      "count": 19,
-      "function": "holding",
-      "description": "Reserved RAM words 0x0005-0x0017 in the TriStar MPPT v11 map."
-    }
-  ],
-  "registers": [
-    {
-      "name": "battery_voltage",
-      "address": 24,
-      "function": "holding",
-      "words": 1,
-      "decoder": "tristar_voltage",
-      "unit": "V",
-      "category": "telemetry"
-    }
-  ]
-}
-```
-
-The actual response also includes firmware-gate fields on blocks/registers/reserved ranges. Frontends should prefer named registers for semantic telemetry, suppress duplicate raw aliases that overlap named or reserved addresses, and keep genuinely unknown raw addresses visible when diagnostic evidence is desired.
-
-For the TriStar MPPT v11 catalog, documented reserved spans currently include `0x0005-0x0017`, `0x002D`, `0x003F`, `0x004A`, and `0xE0C4-0xE0CB`. These are source-backed catalog facts rather than heuristic UI exclusions.
-
-### Raw-device telemetry and history
-
-```http
 GET /v1/devices/latest?device_id=...
 GET /v1/devices/samples?device_id=...
 GET /v1/devices/registers/{name}/history?device_id=...
@@ -312,39 +169,51 @@ GET /v1/devices/history/controller-daily/summary?device_id=...
 GET /v1/devices/history/export?device_id=...
 GET /v1/devices/polling/performance?device_id=...
 GET /v1/devices/polling/history?device_id=...
+GET /v1/devices/intelligence?device_id=...
+GET /v1/devices/register-map?device_id=...
+GET /v1/devices/profile/validation?device_id=...
 ```
 
-These routes deliberately remain scoped to exactly one `device_id`; they do not automatically merge pre-migration history segments. Prefer controller routes when the user concept is "this physical controller" rather than "this raw storage row".
+These routes intentionally query exactly one raw `device_id`. Prefer controller routes for the user concept "this physical controller".
 
-## Catalog API
+## Catalog API and register semantics
 
 ```http
 GET /v1/catalog
 GET /v1/catalog/{profile_name}
+GET /v1/devices/register-map?device_id=...
 ```
 
-Catalog responses describe declarative product/register knowledge and independent verification metadata. Detailed profile responses include named register definitions, read blocks, and any source-backed `reserved_ranges`. They are separate from runtime controller/device intelligence.
+The catalog distinguishes named semantic registers, manufacturer-documented reserved ranges, and genuinely unknown/unmapped raw addresses. Reserved words should not be assigned invented semantic names.
 
-The detailed catalog is the family-level declaration; `/v1/devices/register-map` is the firmware-filtered device-specific effective view.
+See [`device-catalog.md`](device-catalog.md) and [`device-intelligence.md`](device-intelligence.md).
+
+## Time-range semantics
+
+Timestamp-based history routes use normalized UTC timestamps and half-open ranges:
+
+```text
+from <= observed_at < to
+```
+
+Timestamps must include a timezone. Daily retained/reconciliation/energy routes use `YYYY-MM-DD` and the same inclusive-start / exclusive-end concept at day resolution.
+
+## Query limits and errors
+
+Normal JSON history endpoints are bounded. Oversized responses return `413`; narrow the range, request fewer registers, use a coarser resolution, or use streaming export.
+
+| Status | Meaning |
+| --- | --- |
+| `400` | Invalid timestamp/date, range, order, resolution, mode, gap threshold, export format, or other query input |
+| `404` | Unknown controller/device/catalog profile, missing intelligence, or no latest sample where one was requested |
+| `413` | A bounded JSON history query exceeds the allowed point count |
 
 ## Polling versus persistence
 
-The HTTP service exposes persisted data. Normal watcher polling can happen more frequently than SQLite history/performance rows are written.
+The HTTP API exposes persisted observations. Live Modbus polling can run faster than SQLite writes. `database.telemetry_write_interval_seconds` has a minimum of `1.0` second per physical controller, while automatic or numeric polling may operate faster.
 
-`database.telemetry_write_interval_seconds` has a minimum of `1.0` second and limits normal poll-driven persistence per physical controller. A numeric watcher interval such as `0.2` seconds or an automatically selected sub-second stage can therefore produce several live reads between persisted snapshots.
-
-This distinction affects interpretation of latest/history/performance timestamps but not the read-only transport behavior. Event-driven presence/identity updates and retained-history backfill have their own persistence paths, and explicit benchmark persistence is independent of the watcher limiter.
-
-A database persistence failure is logged as a storage problem; it does not retroactively make a successful Modbus read a controller communication failure or force lifecycle reconnect/backoff by itself.
+Retained-history synchronization has its own persistence path. Reconciliation and energy analytics join sources only at read time; they do not modify raw `poll_samples`.
 
 ## Read-only safety boundary
 
-The HTTP API exposes observation, history, identity, diagnostics, catalog, and verification-related data only. It does not expose:
-
-- write-register operations;
-- coil writes;
-- reset/equalize triggers;
-- configuration mutation;
-- arbitrary Modbus function-code passthrough.
-
-The runtime Modbus operations remain limited to the read paths required for discovery and telemetry.
+The HTTP API exposes observation, identity, history, reconciliation, energy analysis, diagnostics, catalog, verification, and system/site data only. It does not expose write-register operations, coil writes, reset/equalize triggers, configuration mutation, or arbitrary Modbus function-code passthrough.
