@@ -1,8 +1,8 @@
 # System/site API
 
-MorningstarModbusAPI exposes a read-only system layer above immutable physical `controller_uid` identities. The system layer is intended for installations with one or more Morningstar controllers that contribute to the same battery/solar site.
+MorningstarModbusAPI exposes a read-only system layer above immutable physical `controller_uid` identities. The system layer is intended for installations with one or more Morningstar controllers contributing to the same battery/solar site.
 
-It does not replace controller-scoped APIs. Raw device/controller telemetry remains authoritative and keeps source provenance; system responses are derived views that normalize compatible measurements across controllers.
+It does not replace controller-scoped APIs. Raw device/controller telemetry remains authoritative and keeps source provenance; system responses are normalized or derived views with explicit quality.
 
 ## Default system
 
@@ -13,9 +13,7 @@ system_uid: sys_default
 name: default
 ```
 
-Every discovered physical controller is enrolled using `controller_uid`. Because membership uses the immutable controller identity, IP changes, USB path changes, and stronger identity evidence do not create a new system member.
-
-The default identity can be changed in configuration:
+Every discovered physical controller is enrolled by immutable `controller_uid`, so IP/USB changes or identity-evidence promotion do not create a new system member.
 
 ```toml
 [system]
@@ -23,7 +21,7 @@ default_uid = "sys_default"
 default_name = "default"
 ```
 
-No HTTP mutation routes are introduced. System membership is an internal/persistent read model rather than a remote controller-control surface.
+No HTTP mutation routes are introduced.
 
 ## Routes
 
@@ -32,7 +30,12 @@ GET /v1/systems
 GET /v1/systems/metrics/catalog
 GET /v1/systems/{system_uid}
 GET /v1/systems/{system_uid}/controllers
+GET /v1/systems/{system_uid}/component-graph
+GET /v1/systems/{system_uid}/components
+GET /v1/systems/{system_uid}/relationships
 GET /v1/systems/{system_uid}/latest
+GET /v1/systems/{system_uid}/power-flow
+GET /v1/systems/{system_uid}/energy-ledger
 GET /v1/systems/{system_uid}/energy
 GET /v1/systems/{system_uid}/health
 GET /v1/systems/{system_uid}/topology
@@ -41,51 +44,102 @@ GET /v1/systems/{system_uid}/history
 GET /v1/systems/{system_uid}/stream
 ```
 
-System identifiers can also be resolved by the configured system name.
+System identifiers can also be resolved by configured name.
 
 ## Normalized metrics
 
-`GET /v1/systems/metrics/catalog` describes the cross-product semantic layer. These semantics are deliberately separate from vendor-derived register definitions: Morningstar catalog modules remain source-backed product truth, while the system layer explains how compatible observations may be combined for application use.
+`GET /v1/systems/metrics/catalog` describes cross-product semantics separately from vendor-derived register definitions.
 
 Examples:
 
-| Metric | Aggregation | Reason |
+| Metric | Aggregation/authority | Meaning |
 | --- | --- | --- |
-| `solar_input_power_w` | sum | Controllers contribute independent PV power |
-| `charge_output_power_w` | sum | Parallel chargers contribute power toward the battery system |
-| `battery_charge_current_a` | sum | Parallel charging currents are additive |
-| `battery_voltage_v` | median | Controllers normally observe the same battery bus; voltages must not be summed |
-| `battery_temperature_c` | median | Represents available battery-temperature observations without adding them |
-| `daily_charge_wh` | sum | Daily energy contributions are additive across independent chargers |
-| `charge_state` | state set | Multiple controllers can be in different charge stages simultaneously |
-| `faults` / `alarms` | state set | Health states remain attributable to their source controller |
+| `solar_input_power_w` | sum | independent controller PV contributions |
+| `charge_output_power_w` | sum | controller charging output contributions |
+| `battery_charge_current_a` | sum | controller-local charger currents |
+| `battery_voltage_v` | median | representative shared-bus voltage |
+| `battery_temperature_c` | median | representative available temperature |
+| `daily_charge_wh` | sum | additive controller-local daily energy |
+| `system_charge_current_a` | non-additive whole-system observation | already-aggregated system charging current |
+| `battery_net_current_a` | non-additive whole-system observation | signed whole-system battery current |
+| `system_load_current_a` | non-additive whole-system observation | whole-system load current |
+| `load_voltage_v` | representative whole-system observation | voltage used for load-power derivation |
+| `charge_state` | state set | controllers may be in different stages |
+| `faults` / `alarms` | state set | health remains attributable to sources |
 
-A controller contributes at most one preferred source register to each normalized metric. This prevents double counting when a product exposes both a primary measurement and a fallback/filtered alias.
+A controller contributes at most one preferred source register to each normalized semantic. Already-aggregated `SYSTEM_*` measurements are never summed across multiple reporters.
 
-## Data-quality semantics
+## Quality and conflict semantics
 
-Every aggregate includes source observations and contributor accounting:
+Aggregate responses expose source observations and contributor accounting. Typical quality values include `complete`, `partial`, and `empty`.
 
-```json
-{
-  "value": 52.4,
-  "unit": "A",
-  "aggregation": "sum",
-  "quality": "partial",
-  "contributors": 2,
-  "expected_contributors": 3,
-  "oldest_observation_age_ms": 842.1,
-  "sources": []
-}
+Whole-system measurements use stricter conflict-aware resolution. A single reporter can be accepted directly; close reporters may form a consensus; materially disagreeing reporters remain explicit `unknown` / `conflict` rather than being silently averaged or summed.
+
+This distinction matters because controller-local charger current is additive while a vendor field named **system current** is already intended to represent the whole system.
+
+## Component graph
+
+The component graph models application-level electrical components and typed relationships above controller identities:
+
+```http
+GET /v1/systems/{system_uid}/component-graph
+GET /v1/systems/{system_uid}/components
+GET /v1/systems/{system_uid}/relationships
 ```
 
-Quality values are:
+It supports a richer electrical/site model than transport topology alone. Transport topology does not prove electrical topology, so inferred relationships remain explicitly inferred.
 
-- `complete` — every controller whose catalog can contribute that metric supplied a current observation;
-- `partial` — at least one expected contributor is missing;
-- `empty` — no current observations are available.
+See [`component-graph.md`](component-graph.md).
 
-Expected contributors are capability-aware. A SureSine that does not expose a charge-controller PV metric is not counted as a missing PV contributor merely because it belongs to the same system.
+## Power flow
+
+```http
+GET /v1/systems/{system_uid}/power-flow
+```
+
+Power flow prefers authoritative source-backed measurements when available and derives additional values only when required inputs are defensible.
+
+With source-backed GenStar whole-system currents, the API may derive:
+
+- system charge power = `system_charge_current_a * battery_voltage_v`;
+- battery net power = `battery_net_current_a * battery_voltage_v`;
+- DC load power = `system_load_current_a * load_voltage_v`;
+- current residual = charge current - battery net current - load current;
+- whole-system DC power residual from corresponding derived powers.
+
+Derived fields retain formula/input provenance. Charger output current is not treated as battery net current.
+
+## Energy ledger
+
+```http
+GET /v1/systems/{system_uid}/energy-ledger
+```
+
+The ledger keeps source-backed energy/counters separate from unsupported estimates. It can prefer resolved whole-system daily charging energy when available and can expose aggregated external-source shunt charging energy.
+
+Important rules:
+
+- external-source shunt energy is **not** automatically labeled generator energy;
+- native Ah counters remain Ah and are not converted into fake Wh using one instantaneous voltage;
+- battery discharge Wh, load consumption Wh, conversion loss, and complete unaccounted-energy Wh remain unknown when evidence is insufficient;
+- controller-local retained/integrated energy and system-wide authoritative counters are different evidence classes.
+
+See [`system-metering.md`](system-metering.md) and [`component-graph.md`](component-graph.md).
+
+## Authoritative GenStar system metering
+
+Morningstar GenStar MPPT V03 provides source-backed whole-system measurements used by the normalized system layer, including:
+
+- `SYSTEM_ICHARGE` -> `system_charge_current_a`;
+- `SYSTEM_IBATT` -> `battery_net_current_a`;
+- `SYSTEM_ILOAD` -> `system_load_current_a`;
+- system battery/load Ah daily/resettable/total counters;
+- controller-local battery/load Ah counters;
+- optional aggregated-shunt charge/battery/load counters.
+
+The system layer treats these as vendor-documented observations/counters with their documented units and signedness. It does not reinterpret Ah as Wh or assume an external-source shunt represents a generator.
+
+See [`system-metering.md`](system-metering.md).
 
 ## History
 
@@ -95,100 +149,68 @@ System history uses normalized metric names rather than vendor register names:
 GET /v1/systems/sys_default/history?metric=battery_charge_current_a&resolution=5m
 ```
 
-Supported resolutions are:
+Supported resolutions include `raw`, `1m`, `5m`, `15m`, `1h`, and `1d`.
 
-- `raw`
-- `1m`
-- `5m`
-- `15m`
-- `1h`
-- `1d`
+Raw points preserve `controller_uid`, `source_device_id`, semantic register name, timestamp, value, and unit. Bucketed points apply the semantic's declared aggregation rule and include contributor/quality metadata.
 
-Raw points preserve `controller_uid`, `source_device_id`, semantic register name, timestamp, value, and unit. Bucketed points apply the metric's declared aggregation rule after grouping observations by physical controller, and include quality/contributor metadata.
+Large queries are bounded and should be narrowed or coarsened when needed.
 
-Like the controller history API, the system history endpoint is bounded. Large queries should be narrowed by time range or coarsened before retrying.
+## Energy and health summary views
 
-## Health and energy views
-
-`GET /v1/systems/{system_uid}/energy` is a focused view of daily Ah/Wh and lifetime charging energy where those metrics are available.
-
-`GET /v1/systems/{system_uid}/health` combines controller status with normalized alarm/fault states. A current fault produces a critical system status; alarms or unavailable controllers produce warning status; otherwise the status is `ok`.
-
-This is an application summary, not a replacement for the underlying controller fault/alarm register evidence.
-
-## Topology and Morningstar bridging
-
-`GET /v1/systems/{system_uid}/topology` returns controller nodes, transport-endpoint nodes, and controller-to-endpoint links.
-
-When several distinct physical controller UIDs are active through the same TCP host/port with different Modbus unit IDs, the API reports a `modbus_tcp_multi_unit_endpoint` bridge candidate. It is explicitly marked:
-
-```json
-{
-  "confidence": "inferred"
-}
+```http
+GET /v1/systems/{system_uid}/energy
+GET /v1/systems/{system_uid}/health
 ```
 
-This pattern is consistent with Morningstar Ethernet-to-EIA-485 Modbus bridging, but endpoint evidence alone is not proof of the physical wiring. The API therefore does not silently declare a bridge or merge the controller identities.
+`energy` provides the established normalized charging-energy/Ah view. `energy-ledger` is the richer component/electrical accounting surface and should be used when source authority, unknown quantities, and residuals matter.
+
+`health` combines controller presence/status with normalized fault/alarm state while preserving underlying source evidence.
+
+## Topology
+
+```http
+GET /v1/systems/{system_uid}/topology
+```
+
+Topology returns controller/transport relationships and includes component-graph information. Shared TCP host/port with different Modbus unit IDs can produce an inferred `modbus_tcp_multi_unit_endpoint` bridge candidate, but endpoint evidence alone is not proof of physical wiring.
 
 ## Unified event timeline
 
-`GET /v1/systems/{system_uid}/events` combines several read-only evidence sources into one timeline:
+```http
+GET /v1/systems/{system_uid}/events
+```
 
-- Modbus communication errors;
-- charge-stage transitions such as Absorption, Float, and Equalize;
-- fault/alarm start and clear transitions;
-- retained-history synchronization results;
-- optional external events written by supported inbound listeners such as SNMP traps.
-
-Derived events retain `controller_uid`, source, timestamp, and source-specific payload/provenance. The event view does not modify controller state.
+The timeline can combine Modbus communication errors, charge-stage transitions, fault/alarm transitions, retained-history synchronization results, and supported external inbound events such as SNMP traps. Events retain source/provenance and do not modify controller state.
 
 ## Server-Sent Events
 
-`GET /v1/systems/{system_uid}/stream` provides a read-only SSE stream. It emits:
+```http
+GET /v1/systems/{system_uid}/stream
+```
 
-- `telemetry` when the normalized system snapshot changes;
-- `system_event` for newly observed timeline events;
-- periodic SSE comment heartbeats to keep idle connections healthy.
-
-Example:
+The read-only SSE stream emits `telemetry` when the normalized snapshot changes, `system_event` for newly observed timeline events, and heartbeat comments for idle connection health.
 
 ```bash
 curl -N http://127.0.0.1:8080/v1/systems/sys_default/stream
 ```
 
-The stream reads the same in-memory/persisted application view and does not increase controller write traffic. SSE is used instead of a bidirectional WebSocket because the public API remains observation-only.
+## Retained-history and controller analytics relationship
 
-## Retained-history providers
+System/site views are built above controller scopes. Controller-retained recovery and v0.6 controller reconciliation remain controller-scoped:
 
-Controller-retained history now uses a provider registry. The existing TriStar MPPT LiveView daily logger is the first provider and preserves its existing API/behavior.
+```http
+GET /v1/controllers/{controller_uid}/history/coverage
+GET /v1/controllers/{controller_uid}/history/gaps
+GET /v1/controllers/{controller_uid}/energy/daily
+GET /v1/controllers/{controller_uid}/energy/summary
+```
 
-New Morningstar logger backends can implement the provider contract and be selected only when they explicitly support a discovered device. This is intended to accommodate verified GenStar hourly/daily/event logging without guessing undocumented register/indexing mechanisms or coupling product-specific parsers to watcher scheduling.
+System APIs do not erase the distinction between controller-local retained evidence, locally integrated controller energy, and source-backed whole-system counters.
 
 ## Optional SNMP trap ingestion
 
-SNMP trap capture is disabled by default:
-
-```toml
-[snmp]
-enabled = false
-host = "127.0.0.1"
-port = 9162
-max_packet_bytes = 65507
-```
-
-When enabled, an asyncio UDP listener records an event when a datagram arrives. It does **not** send SNMP GET/SET operations. To avoid persisting credentials or opaque network payloads, it stores source metadata, packet length, and a SHA-256 digest instead of the raw datagram/community string.
-
-If exactly one active TCP controller is associated with the trap source IP, the event can be attributed to that `controller_uid`; otherwise candidate controller UIDs remain in event provenance and the event is left unassigned.
+SNMP trap capture is disabled by default and is inbound-only. The listener does not perform SNMP GET/SET. It stores bounded source metadata/digest evidence rather than persisting opaque credentials/payloads.
 
 ## Read-only boundary
 
-The system API adds aggregation, history, events, topology, and streaming only. It does not expose:
-
-- Modbus register writes;
-- coil writes;
-- configuration changes;
-- equalize/reset commands;
-- SNMP SET;
-- arbitrary protocol passthrough.
-
-This keeps the service usable as a telemetry and observability boundary even when connected to Morningstar transports that are capable of forwarding write requests.
+The system API adds aggregation, graph/topology, power flow, energy accounting, history, events, and streaming only. It does not expose Modbus register writes, coil writes, configuration changes, equalize/reset commands, ReadyBlock/shunt configuration, generator control, SNMP SET, or arbitrary write-capable protocol passthrough.
