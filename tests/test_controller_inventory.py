@@ -5,8 +5,8 @@ import httpx
 import pytest
 
 from morningstar_modbus.api import create_app
-from morningstar_modbus.controller_inventory import ControllerInventoryRepository
-from morningstar_modbus.storage import TelemetryStore
+from morningstar_modbus.controllers.inventory import ControllerInventoryRepository
+from morningstar_modbus.persistence.store import TelemetryStore
 
 
 async def _insert_endpoint(

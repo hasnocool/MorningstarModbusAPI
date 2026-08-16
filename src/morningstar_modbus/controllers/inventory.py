@@ -9,7 +9,7 @@ from typing import Any
 
 import aiosqlite
 
-from morningstar_modbus.models import DiscoveredDevice, Endpoint
+from morningstar_modbus.domain.models import DiscoveredDevice, Endpoint
 
 ONLINE_GRACE_SECONDS = 120.0
 

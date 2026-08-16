@@ -8,12 +8,13 @@ import time
 
 from morningstar_modbus.catalog import CatalogProfile, get_profile
 from morningstar_modbus.config import AppConfig
-from morningstar_modbus.controller_history import ControllerHistoryBackfiller
-from morningstar_modbus.controller_scope import ControllerRegistry
+from morningstar_modbus.controllers.lifecycle import DeviceLifecycle
+from morningstar_modbus.controllers.scope import ControllerRegistry
 from morningstar_modbus.discovery import discover
+from morningstar_modbus.domain.models import DiscoveredDevice, PollResult
+from morningstar_modbus.history.retained.service import ControllerHistoryBackfiller
 from morningstar_modbus.intelligence import DeviceIntelligence, refresh_intelligence
-from morningstar_modbus.lifecycle import DeviceLifecycle
-from morningstar_modbus.models import DiscoveredDevice, PollResult
+from morningstar_modbus.persistence.store import TelemetryStore
 from morningstar_modbus.polling import (
     AutoPollIntervalController,
     BenchmarkThresholds,
@@ -21,9 +22,12 @@ from morningstar_modbus.polling import (
     PollPersistenceLimiter,
     PollTrafficTracker,
 )
-from morningstar_modbus.polling_storage import PollingPerformanceStore
-from morningstar_modbus.storage import TelemetryStore
-from morningstar_modbus.transport import AsyncModbusRtuClient, AsyncModbusTcpClient, ReadOnlyModbusClient
+from morningstar_modbus.polling.storage import PollingPerformanceStore
+from morningstar_modbus.transports.modbus import (
+    AsyncModbusRtuClient,
+    AsyncModbusTcpClient,
+    ReadOnlyModbusClient,
+)
 
 LOGGER = logging.getLogger(__name__)
 

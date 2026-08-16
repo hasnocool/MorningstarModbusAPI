@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from threading import Lock
 from typing import Any
 
-from morningstar_modbus.models import ModbusExchange
+from morningstar_modbus.domain.models import ModbusExchange
 
 
 def utcnow() -> str:

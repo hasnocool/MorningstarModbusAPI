@@ -10,7 +10,7 @@ from morningstar_modbus.catalog.profile import CatalogProfile
 from morningstar_modbus.catalog.registry import PROFILES, select_spec
 from morningstar_modbus.catalog.scaling import float16
 from morningstar_modbus.catalog.types import DeviceProfileSpec, RegisterBlock, RegisterSpec
-from morningstar_modbus.models import DeviceIdentification
+from morningstar_modbus.domain.models import DeviceIdentification
 
 
 def test_family_selection_prefers_specific_products() -> None:

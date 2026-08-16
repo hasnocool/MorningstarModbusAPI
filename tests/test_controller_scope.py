@@ -4,15 +4,15 @@ import aiosqlite
 import httpx
 import pytest
 
-import morningstar_modbus.watcher as watcher_module
+import morningstar_modbus.runtime.watcher as watcher_module
 from morningstar_modbus.api import create_app
 from morningstar_modbus.config import AppConfig
-from morningstar_modbus.controller_data import ControllerDataRepository
-from morningstar_modbus.controller_scope import ControllerRegistry
+from morningstar_modbus.controllers.scope import ControllerRegistry
+from morningstar_modbus.domain.models import DeviceIdentification, DiscoveredDevice, Endpoint
+from morningstar_modbus.history.controller_data import ControllerDataRepository
 from morningstar_modbus.intelligence.models import DeviceIntelligence
-from morningstar_modbus.models import DeviceIdentification, DiscoveredDevice, Endpoint
-from morningstar_modbus.storage import TelemetryStore
-from morningstar_modbus.watcher import Watcher
+from morningstar_modbus.persistence.store import TelemetryStore
+from morningstar_modbus.runtime.watcher import Watcher
 
 
 def _intelligence(serial_number: str) -> DeviceIntelligence:

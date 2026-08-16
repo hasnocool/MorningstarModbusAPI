@@ -1,9 +1,9 @@
 import pytest
 
 from morningstar_modbus.config import AppConfig, DatabaseConfig, WatchConfig
-from morningstar_modbus.models import DeviceIdentification, DiscoveredDevice, Endpoint, RegisterValue
+from morningstar_modbus.domain.models import DeviceIdentification, DiscoveredDevice, Endpoint, RegisterValue
 from morningstar_modbus.polling import PollPersistenceLimiter, PollTrafficTracker
-from morningstar_modbus.watcher import Watcher
+from morningstar_modbus.runtime.watcher import Watcher
 
 
 class FakeStore:

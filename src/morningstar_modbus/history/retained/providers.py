@@ -7,10 +7,10 @@ from collections.abc import Iterable
 from typing import Protocol
 
 from morningstar_modbus.config import HistoryBackfillConfig
-from morningstar_modbus.controller_history_liveview import ControllerHistoryBackfiller as LiveViewBackfiller
-from morningstar_modbus.controller_history_storage import ControllerHistoryRepository
-from morningstar_modbus.controller_history_types import BackfillResult
-from morningstar_modbus.models import DiscoveredDevice
+from morningstar_modbus.domain.models import DiscoveredDevice
+from morningstar_modbus.history.retained.liveview import ControllerHistoryBackfiller as LiveViewBackfiller
+from morningstar_modbus.history.retained.storage import ControllerHistoryRepository
+from morningstar_modbus.history.retained.types import BackfillResult
 
 
 class ControllerHistoryProvider(Protocol):

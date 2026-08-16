@@ -8,18 +8,18 @@ import pytest
 
 from morningstar_modbus.api import create_app
 from morningstar_modbus.config import AppConfig, HistoryBackfillConfig, load_config
-from morningstar_modbus.controller_history import ControllerHistoryBackfiller
-from morningstar_modbus.controller_scope import ControllerRegistry
-from morningstar_modbus.intelligence.models import DeviceIntelligence
-from morningstar_modbus.models import (
+from morningstar_modbus.controllers.scope import ControllerRegistry
+from morningstar_modbus.domain.models import (
     DeviceIdentification,
     DiscoveredDevice,
     Endpoint,
     PollResult,
     RegisterValue,
 )
-from morningstar_modbus.storage import TelemetryStore
-from morningstar_modbus.system_data import SystemDataRepository
+from morningstar_modbus.history.retained.service import ControllerHistoryBackfiller
+from morningstar_modbus.intelligence.models import DeviceIntelligence
+from morningstar_modbus.persistence.store import TelemetryStore
+from morningstar_modbus.systems.data import SystemDataRepository
 
 
 def _device(unit_id: int, serial_number: str) -> DiscoveredDevice:

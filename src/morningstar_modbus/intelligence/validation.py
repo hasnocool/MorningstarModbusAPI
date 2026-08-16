@@ -6,8 +6,8 @@ from __future__ import annotations
 import math
 
 from morningstar_modbus.catalog.types import DeviceProfileSpec
+from morningstar_modbus.domain.models import RegisterValue
 from morningstar_modbus.intelligence.models import IntelligenceEvidence, ValidationIssue
-from morningstar_modbus.models import RegisterValue
 
 
 def validate_values(

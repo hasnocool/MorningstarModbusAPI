@@ -19,8 +19,8 @@ from morningstar_modbus.catalog.families.tristar_pwm import TRISTAR_PWM
 from morningstar_modbus.catalog.profile import CatalogProfile
 from morningstar_modbus.catalog.types import DeviceProfileSpec, RegisterBlock
 from morningstar_modbus.catalog.verification import verification_for
-from morningstar_modbus.models import DeviceIdentification
-from morningstar_modbus.transport import ReadOnlyModbusClient
+from morningstar_modbus.domain.models import DeviceIdentification
+from morningstar_modbus.transports.modbus import ReadOnlyModbusClient
 
 GENERIC = DeviceProfileSpec(
     name="generic",

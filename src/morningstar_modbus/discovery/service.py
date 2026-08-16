@@ -10,9 +10,13 @@ import time
 from collections.abc import Iterable
 
 from morningstar_modbus.config import AppConfig
+from morningstar_modbus.domain.models import DeviceIdentification, DiscoveredDevice, Endpoint
 from morningstar_modbus.intelligence import DeviceIntelligence, resolve_device_intelligence
-from morningstar_modbus.models import DeviceIdentification, DiscoveredDevice, Endpoint
-from morningstar_modbus.transport import AsyncModbusRtuClient, AsyncModbusTcpClient, ReadOnlyModbusClient
+from morningstar_modbus.transports.modbus import (
+    AsyncModbusRtuClient,
+    AsyncModbusTcpClient,
+    ReadOnlyModbusClient,
+)
 
 LOGGER = logging.getLogger(__name__)
 

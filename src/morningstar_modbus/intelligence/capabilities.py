@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from morningstar_modbus.catalog.types import DeviceProfileSpec
-from morningstar_modbus.models import Endpoint, RegisterValue
+from morningstar_modbus.domain.models import Endpoint, RegisterValue
 
 
 def negotiate_capabilities(

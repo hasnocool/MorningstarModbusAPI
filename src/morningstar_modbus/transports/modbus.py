@@ -11,8 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
-from morningstar_modbus.exceptions import ModbusDeviceError, ModbusProtocolError
-from morningstar_modbus.models import DeviceIdentification, ModbusExchange
+from morningstar_modbus.domain.models import DeviceIdentification, ModbusExchange
 from morningstar_modbus.protocol import (
     READ_DEVICE_IDENTIFICATION,
     append_crc,
@@ -21,6 +20,7 @@ from morningstar_modbus.protocol import (
     read_registers_pdu,
     valid_crc,
 )
+from morningstar_modbus.protocol.errors import ModbusDeviceError, ModbusProtocolError
 
 LOGGER = logging.getLogger(__name__)
 ExchangeObserver = Callable[[ModbusExchange], None]

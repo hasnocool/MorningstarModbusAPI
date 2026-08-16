@@ -10,7 +10,7 @@ from typing import Any
 
 import aiosqlite
 
-from morningstar_modbus.controller_scope import ControllerRegistry, ControllerScope
+from morningstar_modbus.controllers.scope import ControllerRegistry, ControllerScope
 from morningstar_modbus.history import HistoryQueryTooLarge
 from morningstar_modbus.polling import PollPerformanceSample, summarize_performance
 

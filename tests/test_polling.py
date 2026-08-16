@@ -4,7 +4,8 @@ import httpx
 import pytest
 
 from morningstar_modbus.api import create_app
-from morningstar_modbus.models import DeviceIdentification, DiscoveredDevice, Endpoint, ModbusExchange
+from morningstar_modbus.domain.models import DeviceIdentification, DiscoveredDevice, Endpoint, ModbusExchange
+from morningstar_modbus.persistence.store import TelemetryStore
 from morningstar_modbus.polling import (
     AutoPollIntervalController,
     BenchmarkThresholds,
@@ -15,8 +16,7 @@ from morningstar_modbus.polling import (
     evaluate_benchmark_stage,
     summarize_performance,
 )
-from morningstar_modbus.polling_storage import PollingPerformanceStore
-from morningstar_modbus.storage import TelemetryStore
+from morningstar_modbus.polling.storage import PollingPerformanceStore
 
 
 def _exchange(*, latency_ms: float = 20.0, error: str = "") -> ModbusExchange:

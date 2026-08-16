@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from morningstar_modbus.capture import load_capture_transactions
-from morningstar_modbus.models import DeviceIdentification
+from morningstar_modbus.domain.models import DeviceIdentification
 from morningstar_modbus.protocol import parse_device_identification, parse_register_response
 
 

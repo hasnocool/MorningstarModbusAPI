@@ -10,6 +10,7 @@ from morningstar_modbus.catalog.types import (
     RegisterSpec,
     ReservedRegisterRange,
 )
+from morningstar_modbus.domain.models import DeviceIdentification, Endpoint, RegisterValue
 from morningstar_modbus.intelligence import (
     DeviceIntelligence,
     effective_register_map,
@@ -17,8 +18,7 @@ from morningstar_modbus.intelligence import (
     resolve_device_intelligence,
 )
 from morningstar_modbus.intelligence.models import IntelligenceEvidence
-from morningstar_modbus.models import DeviceIdentification, Endpoint, RegisterValue
-from morningstar_modbus.storage import TelemetryStore
+from morningstar_modbus.persistence.store import TelemetryStore
 
 
 class TriStarMetadataClient:
@@ -161,7 +161,7 @@ async def test_intelligence_persistence_is_separate_from_telemetry(tmp_path: Pat
         status="verified",
         capabilities=("modbus_tcp",),
     )
-    from morningstar_modbus.models import DiscoveredDevice
+    from morningstar_modbus.domain.models import DiscoveredDevice
 
     device = DiscoveredDevice(
         Endpoint("tcp", "192.0.2.10", 1, port=502),

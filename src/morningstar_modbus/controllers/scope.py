@@ -8,8 +8,8 @@ from uuid import uuid4
 
 import aiosqlite
 
-from morningstar_modbus.controller_inventory import ControllerInventoryRepository
-from morningstar_modbus.models import DiscoveredDevice
+from morningstar_modbus.controllers.inventory import ControllerInventoryRepository
+from morningstar_modbus.domain.models import DiscoveredDevice
 
 _SCOPE_SCHEMA = """
 PRAGMA foreign_keys=ON;

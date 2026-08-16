@@ -11,9 +11,9 @@ from typing import Any
 
 import aiosqlite
 
+from morningstar_modbus.domain.models import DiscoveredDevice, PollResult
 from morningstar_modbus.history import HistoryQueryTooLarge
 from morningstar_modbus.intelligence.models import DeviceIntelligence
-from morningstar_modbus.models import DiscoveredDevice, PollResult
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;

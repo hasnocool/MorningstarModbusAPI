@@ -65,7 +65,7 @@ Consumers should prefer the semantic register map and treat raw aliases as evide
 
 ## Package layout
 
-The runtime is organized into domain packages such as `api/`, `capture/`, `controllers/`, `discovery/`, `history/`, `persistence/`, `polling/`, `protocol/`, `runtime/`, `systems/`, and `transports/`. Legacy flat import paths remain available through compatibility exports/aliases so the v0.5.0 reorganization does not intentionally break callers.
+The runtime is organized into domain packages such as `api/`, `capture/`, `controllers/`, `discovery/`, `history/`, `persistence/`, `polling/`, `protocol/`, `runtime/`, `systems/`, and `transports/`. The pre-release flat import paths were intentionally removed in v0.5.0; import from the owning domain package instead.
 
 See [`docs/package-layout.md`](docs/package-layout.md) for the canonical tree and dependency direction, and [`docs/README.md`](docs/README.md) for the documentation index.
 
