@@ -46,7 +46,10 @@ async def _legacy_db(path: str) -> None:
         for index in range(6):
             observed = (start + timedelta(seconds=index)).isoformat()
             cursor = await db.execute(
-                "INSERT INTO poll_samples(device_id, observed_at, latency_ms, profile) VALUES (?, ?, 5.0, 'test')",
+                """
+                INSERT INTO poll_samples(device_id, observed_at, latency_ms, profile)
+                VALUES (?, ?, 5.0, 'test')
+                """,
                 ("dev-1", observed),
             )
             sample_id = int(cursor.lastrowid or 0)
@@ -88,10 +91,17 @@ async def test_storage_v2_migrates_existing_database_and_builds_compact_layers(t
     assert state_runs == 2
 
     async with aiosqlite.connect(database) as db:
-        columns = {row[1] for row in await (await db.execute("PRAGMA table_info(poll_samples)")).fetchall()}
-        dictionary = int((await (await db.execute(
-            "SELECT COUNT(*) FROM storage_register_dictionary"
-        )).fetchone())[0])
+        columns = {
+            row[1]
+            for row in await (await db.execute("PRAGMA table_info(poll_samples)")).fetchall()
+        }
+        dictionary = int(
+            (
+                await (
+                    await db.execute("SELECT COUNT(*) FROM storage_register_dictionary")
+                ).fetchone()
+            )[0]
+        )
     assert "observed_at_ms" in columns
     assert dictionary == 2
 
