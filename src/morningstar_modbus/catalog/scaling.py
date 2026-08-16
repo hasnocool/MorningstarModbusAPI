@@ -12,6 +12,15 @@ def signed_16(value: int) -> int:
     return value - 0x10000 if value & 0x8000 else value
 
 
+def signed_32(words: tuple[int, ...]) -> int:
+    """Decode one signed two-register integer in Modbus word order."""
+
+    if len(words) != 2:
+        raise ValueError("signed_32 decoder requires two words")
+    value = ((words[0] & 0xFFFF) << 16) | (words[1] & 0xFFFF)
+    return value - 0x1_0000_0000 if value & 0x8000_0000 else value
+
+
 def fixed_point_scale(high_word: int, low_word: int) -> float:
     return float(high_word & 0xFFFF) + float(low_word & 0xFFFF) / 65536.0
 
@@ -104,11 +113,15 @@ def decode_value(
         if len(words) != 2:
             raise ValueError("u32 decoder requires two words")
         return ((words[0] & 0xFFFF) << 16) | (words[1] & 0xFFFF)
+    if decoder == "s32":
+        return signed_32(words)
     if decoder.startswith("u32_factor:"):
         if len(words) != 2:
             raise ValueError("u32_factor decoder requires two words")
         combined = ((words[0] & 0xFFFF) << 16) | (words[1] & 0xFFFF)
         return combined * float(decoder.split(":", 1)[1])
+    if decoder.startswith("s32_factor:"):
+        return signed_32(words) * float(decoder.split(":", 1)[1])
     if decoder == "ascii_lo_hi":
         return ascii_low_high(words)
     if decoder == "ascii_hi_lo":
