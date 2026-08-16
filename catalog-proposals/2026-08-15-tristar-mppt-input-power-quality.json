@@ -1,0 +1,23 @@
+{
+  "source_id": "tristar-mppt-modbus-v11",
+  "source_sha256": "175cffda01cb215999fec2bdd6a7d96350246071033f57f0424795c86614efe4",
+  "affected_profiles": [
+    "tristar_mppt"
+  ],
+  "changes": [
+    {
+      "address": "0x003B",
+      "change": "preserve Morningstar power_in_shadow with the documented n*V_PU*I_PU*2^-17 scaling as input_power_reported, explicitly noting the vendor warning that array input current is not precision-shunt measured and reported input power can have significant error"
+    },
+    {
+      "address": "0x003B",
+      "change": "add a separate operator-facing input_power value that falls back to battery-side charging power only when the controller-reported estimate is severely inconsistent, while exposing source, quality, and explanatory note fields"
+    }
+  ],
+  "tests": [
+    "tests/test_derived.py::test_tristar_replaces_extreme_reported_input_power_with_output_proxy",
+    "tests/test_derived.py::test_tristar_keeps_plausible_controller_reported_input_power",
+    "tests/test_derived.py::test_tristar_uses_battery_voltage_current_when_output_power_is_missing",
+    "tests/test_profiles.py::test_tristar_profile_decodes_named_metrics"
+  ]
+}
