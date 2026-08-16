@@ -7,6 +7,26 @@ path = "./morningstar.db"
 # this interval. Values below 1.0 are rejected even when polling is faster.
 telemetry_write_interval_seconds = 1.0
 
+[storage]
+# Storage v2 keeps recent raw SQLite history hot, creates compact integer-time
+# rollups, archives lossless raw observations to Zstd-compressed Parquet, and
+# only then prunes archived raw rows. Install with: pip install -e '.[storage]'
+enabled = true
+archive_dir = "./morningstar-archive"
+maintenance_interval_seconds = 21600.0
+hot_days = 7
+warm_days = 30
+cool_days = 180
+warm_bucket_seconds = 10
+cool_bucket_seconds = 60
+cold_bucket_seconds = 300
+archive_batch_rows = 10000
+# Zstd levels 1..22; 19 favors storage density over archive CPU time.
+parquet_compression_level = 19
+# Raw SQLite rows are only deleted after the corresponding archive passes SHA-256 verification.
+prune_archived_raw = true
+incremental_vacuum_pages = 2048
+
 [watch]
 # Either a positive number of seconds or "auto".
 # "auto" starts at the conservative fallback below, then safely tests the
@@ -18,56 +38,38 @@ discovery_interval_seconds = 30.0
 request_timeout_seconds = 1.5
 unit_ids = [1]
 max_tcp_concurrency = 32
-# Number of consecutive poll failures before a device is treated as offline.
 failure_threshold = 3
-# Failed/offline devices retry with exponential backoff between these bounds.
 retry_backoff_initial_seconds = 2.0
 retry_backoff_max_seconds = 60.0
 
 [poll_benchmark]
-# `benchmark-polling` tests these directly. Auto mode first establishes the
-# fallback baseline below, then tests these from slowest to fastest.
 intervals_seconds = [1.0, 0.5, 0.25]
 samples_per_interval = 12
 min_success_rate = 0.98
-# p95 poll latency must stay below this fraction of the target interval.
 max_p95_interval_ratio = 0.80
 max_deadline_miss_rate = 0.05
 max_request_failure_rate = 0.02
-# RTU only; TCP reports this metric as null.
 max_bus_utilization_percent = 70.0
-# Prevent accidentally benchmarking extremely aggressive rates.
 minimum_interval_seconds = 0.25
-# Auto mode starts here and returns to the last proven-safe stage if a faster
-# stage fails. This value must be at least as slow as the slowest test stage.
 auto_fallback_interval_seconds = 5.0
 
 [serial]
 enabled = true
 baudrate = 9600
 stop_bits = 2
-# Optional allowlist. Leave empty to inspect all enumerated serial devices.
 ports = []
 
 [tcp]
 enabled = true
 port = 502
-# Explicit hosts are safest and are checked every discovery cycle.
 hosts = []
-# Optional local CIDRs. Example: ["192.168.1.0/24"]
 subnets = []
 
 [backfill]
-# TS-MPPT-60/45 Ethernet controllers expose retained daily history through
-# their built-in LiveView datalog page. Backfill runs after live polling succeeds
-# so a slow or unavailable web page never delays normal telemetry acquisition.
-# The runtime now dispatches through a retained-history provider registry so
-# additional verified Morningstar logger backends can be added independently.
 enabled = true
 on_startup = true
 on_reconnect = true
 max_days = 200
-# Use an IANA zone such as "America/Vancouver" when exact DST-aware day boundaries matter.
 calendar_timezone = "local"
 http_port = 80
 http_path = "/datalog.html"
@@ -75,16 +77,10 @@ timeout_seconds = 3.0
 max_response_bytes = 1048576
 
 [system]
-# All discovered physical controllers are persistently enrolled into this
-# read-only default system/site. Historical membership is retained across
-# endpoint, IP, and USB path changes because membership uses controller_uid.
 default_uid = "sys_default"
 default_name = "default"
 
 [snmp]
-# Optional inbound trap capture. Disabled by default. The listener never sends
-# SNMP GET/SET requests and stores only source metadata + a packet digest, not
-# raw datagrams or community strings.
 enabled = false
 host = "127.0.0.1"
 port = 9162
