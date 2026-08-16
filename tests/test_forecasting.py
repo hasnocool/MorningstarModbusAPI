@@ -111,7 +111,7 @@ class _FakeSystems:
                         "value": 400.0,
                     }
                 )
-        if end.date() == self.now.date():
+        if end.date() == self.now.date() and end > start_day:
             for minute in range(6 * 60, 12 * 60 + 1, 15):
                 points.append(
                     {
