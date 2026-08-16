@@ -11,7 +11,9 @@ from collections.abc import AsyncIterator
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
+from morningstar_modbus.api.routers.forecasting import attach_forecast_routes
 from morningstar_modbus.api.routers.incidents import attach_incident_routes
+from morningstar_modbus.forecasting import ForecastService
 from morningstar_modbus.history import HistoryQueryError, normalize_time_range
 from morningstar_modbus.intelligence.incidents import SiteIntelligenceService
 from morningstar_modbus.systems.components import SystemComponentService
@@ -70,6 +72,7 @@ def attach_system_routes(app: FastAPI, data: SystemDataRepository) -> None:
     power = SystemPowerService(data, components)
     path = getattr(data, "path", None)
     intelligence = SiteIntelligenceService(str(path), data) if path else None
+    forecasts = ForecastService(data) if path else None
 
     @app.get("/v1/systems/metrics/catalog")
     async def system_metric_definitions() -> list[dict[str, object]]:
@@ -272,3 +275,5 @@ def attach_system_routes(app: FastAPI, data: SystemDataRepository) -> None:
 
     if intelligence is not None:
         attach_incident_routes(app, intelligence)
+    if forecasts is not None:
+        attach_forecast_routes(app, forecasts)
